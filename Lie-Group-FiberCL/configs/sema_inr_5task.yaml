@@ -1,0 +1,62 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# SEMA — ImageNet-R (B40 Inc40, 5 tasks)
+# 论文消融实验: 最少任务数、每个任务最多类
+# 用法:   python main.py --config configs/sema_inr_5task.yaml
+# ═══════════════════════════════════════════════════════════════════════════
+
+prefix: reproduce              # 实验前缀
+model_name: sema               # 模型名称
+
+# ── 数据集 ──
+dataset: imagenetr             # ImageNet-R
+init_cls: 40                   # 首个任务 40 类（B40）
+increment: 40                  # 每个任务新增 40 类 (200类 → 1+4=5 个任务)
+shuffle: true                  # 随机打乱类别顺序
+
+# ── 主干网络 ──
+backbone_type: pretrained_vit_b16_224_adapter
+
+# ── 硬件 ──
+device: auto                   # 自动选空闲最大的 GPU
+seed: [1993]
+batch_size: 32
+
+# ── 优化器 ──
+optimizer: sgd
+init_lr: 0.005                 # func 阶段学习率
+rd_lr: 0.01                    # rd 阶段学习率
+weight_decay: 0.0005
+min_lr: 0
+
+# ── 训练阶段 ──
+func_epoch: 20                 # func 阶段 epoch 数
+rd_epoch: 20                   # rd 阶段 epoch 数
+
+# ── SEMA 适配器 ──
+ffn_num: 16                    # 适配器瓶颈维度
+ffn_adapter_type: adaptmlp
+
+# ── SEMA 表征描述器 ──
+rd_dim: 128                    # 自编码器压缩维度
+buffer_size: 500               # 重建误差缓冲区大小
+
+# ── SEMA 扩展检测 ──
+exp_threshold: 2               # Z-score 阈值
+adapt_start_layer: 9           # 检测起始层
+adapt_end_layer: 11            # 检测结束层
+detect_batch_size: 128         # 检测时 batch size
+
+# ── 回放内存 ──
+memory_size: 0
+memory_per_class: 0
+fixed_memory: false
+
+# ── VPT ──
+vpt_type: shallow
+prompt_token_num: 5
+
+# ── wandb ──
+wandb:
+  mode: online                 # online / offline / disabled
+  project: LiF-CL
+  tags: [sema, imagenet-r]

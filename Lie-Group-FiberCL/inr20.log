@@ -1,0 +1,90 @@
+nohup: 忽略输入
+2026-05-09 23:53:40,933 [seed.py] => Auto-selected cuda:3 (22.1 GB free)
+2026-05-09 23:53:41,060 [data_manager.py] => [168, 136, 51, 9, 183, 101, 171, 99, 42, 159, 191, 70, 16, 188, 27, 10, 175, 26, 68, 187, 98, 6, 85, 35, 112, 43, 100, 0, 103, 181, 88, 59, 4, 2, 116, 174, 94, 80, 106, 1, 147, 17, 141, 131, 72, 23, 173, 54, 197, 118, 87, 32, 79, 104, 91, 19, 135, 107, 178, 36, 11, 199, 142, 8, 122, 3, 28, 57, 153, 172, 190, 56, 49, 44, 97, 62, 151, 169, 194, 55, 192, 12, 189, 78, 66, 180, 15, 137, 109, 134, 92, 119, 126, 52, 170, 40, 148, 65, 144, 64, 138, 45, 77, 89, 154, 90, 71, 193, 74, 30, 113, 143, 96, 84, 67, 50, 186, 156, 69, 21, 18, 111, 108, 58, 125, 157, 150, 110, 182, 129, 166, 83, 81, 60, 13, 165, 14, 176, 63, 117, 5, 22, 145, 121, 38, 41, 82, 127, 114, 20, 31, 53, 37, 163, 196, 130, 152, 162, 86, 76, 24, 34, 184, 149, 33, 128, 198, 155, 146, 167, 139, 120, 140, 102, 47, 25, 158, 123, 46, 164, 61, 7, 115, 75, 133, 160, 105, 132, 179, 124, 48, 73, 93, 39, 95, 195, 29, 177, 185, 161]
+This is for the BaseNet initialization.
+I'm using ViT with adapters.
+2026-05-09 23:53:42,305 [sema_block.py] => Adapter 0.0 added at block 0
+2026-05-09 23:53:42,376 [sema_block.py] => Adapter 1.0 added at block 1
+2026-05-09 23:53:42,459 [sema_block.py] => Adapter 2.0 added at block 2
+2026-05-09 23:53:42,538 [sema_block.py] => Adapter 3.0 added at block 3
+2026-05-09 23:53:42,616 [sema_block.py] => Adapter 4.0 added at block 4
+2026-05-09 23:53:42,678 [sema_block.py] => Adapter 5.0 added at block 5
+2026-05-09 23:53:42,752 [sema_block.py] => Adapter 6.0 added at block 6
+2026-05-09 23:53:42,834 [sema_block.py] => Adapter 7.0 added at block 7
+2026-05-09 23:53:42,896 [sema_block.py] => Adapter 8.0 added at block 8
+2026-05-09 23:53:42,986 [sema_block.py] => Adapter 9.0 added at block 9
+2026-05-09 23:53:43,075 [sema_block.py] => Adapter 10.0 added at block 10
+2026-05-09 23:53:43,152 [sema_block.py] => Adapter 11.0 added at block 11
+_IncompatibleKeys(missing_keys=['blocks.0.adapter_module.adapters.0.functional.down_proj.weight', 'blocks.0.adapter_module.adapters.0.functional.down_proj.bias', 'blocks.0.adapter_module.adapters.0.functional.up_proj.weight', 'blocks.0.adapter_module.adapters.0.functional.up_proj.bias', 'blocks.0.adapter_module.router.weight', 'blocks.0.adapter_module.router.bias', 'blocks.1.adapter_module.adapters.0.functional.down_proj.weight', 'blocks.1.adapter_module.adapters.0.functional.down_proj.bias', 'blocks.1.adapter_module.adapters.0.functional.up_proj.weight', 'blocks.1.adapter_module.adapters.0.functional.up_proj.bias', 'blocks.1.adapter_module.router.weight', 'blocks.1.adapter_module.router.bias', 'blocks.2.adapter_module.adapters.0.functional.down_proj.weight', 'blocks.2.adapter_module.adapters.0.functional.down_proj.bias', 'blocks.2.adapter_module.adapters.0.functional.up_proj.weight', 'blocks.2.adapter_module.adapters.0.functional.up_proj.bias', 'blocks.2.adapter_module.router.weight', 'blocks.2.adapter_module.router.bias', 'blocks.3.adapter_module.adapters.0.functional.down_proj.weight', 'blocks.3.adapter_module.adapters.0.functional.down_proj.bias', 'blocks.3.adapter_module.adapters.0.functional.up_proj.weight', 'blocks.3.adapter_module.adapters.0.functional.up_proj.bias', 'blocks.3.adapter_module.router.weight', 'blocks.3.adapter_module.router.bias', 'blocks.4.adapter_module.adapters.0.functional.down_proj.weight', 'blocks.4.adapter_module.adapters.0.functional.down_proj.bias', 'blocks.4.adapter_module.adapters.0.functional.up_proj.weight', 'blocks.4.adapter_module.adapters.0.functional.up_proj.bias', 'blocks.4.adapter_module.router.weight', 'blocks.4.adapter_module.router.bias', 'blocks.5.adapter_module.adapters.0.functional.down_proj.weight', 'blocks.5.adapter_module.adapters.0.functional.down_proj.bias', 'blocks.5.adapter_module.adapters.0.functional.up_proj.weight', 'blocks.5.adapter_module.adapters.0.functional.up_proj.bias', 'blocks.5.adapter_module.router.weight', 'blocks.5.adapter_module.router.bias', 'blocks.6.adapter_module.adapters.0.functional.down_proj.weight', 'blocks.6.adapter_module.adapters.0.functional.down_proj.bias', 'blocks.6.adapter_module.adapters.0.functional.up_proj.weight', 'blocks.6.adapter_module.adapters.0.functional.up_proj.bias', 'blocks.6.adapter_module.router.weight', 'blocks.6.adapter_module.router.bias', 'blocks.7.adapter_module.adapters.0.functional.down_proj.weight', 'blocks.7.adapter_module.adapters.0.functional.down_proj.bias', 'blocks.7.adapter_module.adapters.0.functional.up_proj.weight', 'blocks.7.adapter_module.adapters.0.functional.up_proj.bias', 'blocks.7.adapter_module.router.weight', 'blocks.7.adapter_module.router.bias', 'blocks.8.adapter_module.adapters.0.functional.down_proj.weight', 'blocks.8.adapter_module.adapters.0.functional.down_proj.bias', 'blocks.8.adapter_module.adapters.0.functional.up_proj.weight', 'blocks.8.adapter_module.adapters.0.functional.up_proj.bias', 'blocks.8.adapter_module.router.weight', 'blocks.8.adapter_module.router.bias', 'blocks.9.adapter_module.adapters.0.functional.down_proj.weight', 'blocks.9.adapter_module.adapters.0.functional.down_proj.bias', 'blocks.9.adapter_module.adapters.0.functional.up_proj.weight', 'blocks.9.adapter_module.adapters.0.functional.up_proj.bias', 'blocks.9.adapter_module.adapters.0.rd.encoder.weight', 'blocks.9.adapter_module.adapters.0.rd.encoder.bias', 'blocks.9.adapter_module.adapters.0.rd.decoder.weight', 'blocks.9.adapter_module.adapters.0.rd.decoder.bias', 'blocks.9.adapter_module.router.weight', 'blocks.9.adapter_module.router.bias', 'blocks.10.adapter_module.adapters.0.functional.down_proj.weight', 'blocks.10.adapter_module.adapters.0.functional.down_proj.bias', 'blocks.10.adapter_module.adapters.0.functional.up_proj.weight', 'blocks.10.adapter_module.adapters.0.functional.up_proj.bias', 'blocks.10.adapter_module.adapters.0.rd.encoder.weight', 'blocks.10.adapter_module.adapters.0.rd.encoder.bias', 'blocks.10.adapter_module.adapters.0.rd.decoder.weight', 'blocks.10.adapter_module.adapters.0.rd.decoder.bias', 'blocks.10.adapter_module.router.weight', 'blocks.10.adapter_module.router.bias', 'blocks.11.adapter_module.adapters.0.functional.down_proj.weight', 'blocks.11.adapter_module.adapters.0.functional.down_proj.bias', 'blocks.11.adapter_module.adapters.0.functional.up_proj.weight', 'blocks.11.adapter_module.adapters.0.functional.up_proj.bias', 'blocks.11.adapter_module.adapters.0.rd.encoder.weight', 'blocks.11.adapter_module.adapters.0.rd.encoder.bias', 'blocks.11.adapter_module.adapters.0.rd.decoder.weight', 'blocks.11.adapter_module.adapters.0.rd.decoder.bias', 'blocks.11.adapter_module.router.weight', 'blocks.11.adapter_module.router.bias'], unexpected_keys=['head.bias', 'head.weight'])
+After BaseNet initialization.
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  Model Structure                                                             ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║── Components ────────────────────────────────────────────────────────────────║
+║  backbone            ViT-B/16 + SEMA blocks     FROZEN       86,704,716 params                   ║
+║    adapters          12 layers, 12 adapters                     906,060 params                   ║
+║  classifier          Linear  768 -> 200            TRAINABLE              0 params               ║
+║                                                                                                  ║
+║  TOTAL                 86,704,716 params     trainable: 906,060 (1%)                             ║
+║                                                                                                  ║
+║── SEMA Config ───────────────────────────────────────────────────────────────║
+║  adapt-layers        L9 -> L11  (3 layers)                                                       ║
+║  exp-threshold       z-score > 2                                                                 ║
+║  rd-dim              128                                                                         ║
+║  replay              OFF                                                                         ║
+║  tasks               20                                                                          ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  Hyperparameters                                                             ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║── Experiment ────────────────────────────────────────────────────────────────║
+║  method              sema                                                                        ║
+║  device              cuda:3                                                                      ║wandb: [wandb.login()] Loaded credentials for https://api.wandb.ai from /home/su09/.netrc.
+wandb: W&B API key is configured. Use `wandb login --relogin` to force relogin
+wandb: WARNING Using a boolean value for 'reinit' is deprecated. Use 'return_previous' or 'finish_previous' instead.
+wandb: setting up run e8mhzi8r
+wandb: Tracking run with wandb version 0.26.1
+wandb: Run data is saved locally in /sdb/syc/My_code/LiF-CL/Lie-Group-FiberCL/wandb/run-20260509_235353-e8mhzi8r
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run logs_sema_imagenetr_0_10_reproduce_1993_pretrained_vit_b16_224_adapter
+wandb: ⭐️ View project at https://wandb.ai/-soochow-university/LiF-CL
+wandb: 🚀 View run at https://wandb.ai/-soochow-university/LiF-CL/runs/e8mhzi8r
+
+║  seed                1993                                                                        ║
+║  save-root           ./checkpoints                                                               ║
+║                                                                                                  ║
+║── Dataset ───────────────────────────────────────────────────────────────────║
+║  dataset             imagenetr  (200 classes, 20 tasks x 10/task)                                ║
+║  img-size            224                                                                         ║
+║  data-root           <auto>                                                                      ║
+║                                                                                                  ║
+║── Model — SEMA ──────────────────────────────────────────────────────────────║
+║  backbone            vit-b16-224  pretrained=True  dim=768  FROZEN                               ║
+║  adapters            init=1/layer  bottleneck=16  detect=L9-L11                                  ║
+║  rd-dim              128                                                                         ║
+║  exp-threshold       z > 2                                                                       ║
+║  classifier          linear  768 -> 200                                                          ║
+║                                                                                                  ║
+║── Training ──────────────────────────────────────────────────────────────────║
+║  optimizer           sgd                                                                         ║
+║  lr                  func=0.005  rd=0.01                                                         ║
+║  weight-decay        0.0005                                                                      ║
+║  batch-size          32                                                                          ║
+║  epochs              func=20  rd=20                                                              ║
+║  min-lr              0                                                                           ║
+║  amp                 True                                                                        ║
+║                                                                                                  ║
+║── Loss ──────────────────────────────────────────────────────────────────────║
+║  CE  (func)          1.0                                                                         ║
+║  RD  (rd)            1.0                                                                         ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+2026-05-09 23:53:55,514 [main.py] => All params: 86704716
+2026-05-09 23:53:55,514 [main.py] => Trainable params: 906060
+2026-05-09 23:53:55,519 [sema.py] => Learning on 0-10
+86,858,516 total parameters.
+1,059,860 training parameters.
+  0%|          | 0/20 [00:00<?, ?it/s]

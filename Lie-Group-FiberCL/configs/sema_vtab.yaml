@@ -1,0 +1,64 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# SEMA — VTAB (B0 Inc10, 5 tasks)
+# 对应论文: CVPR 2025, VTAB 实验
+# VTAB 是视觉任务适应基准，包含多领域任务，shuffle=false
+# 用法:   python main.py --config configs/sema_vtab.yaml
+# ═══════════════════════════════════════════════════════════════════════════
+
+prefix: reproduce              # 实验前缀
+model_name: sema               # 模型名称
+
+# ── 数据集 ──
+dataset: vtab                  # VTAB: 50 类, 224×224, 多领域视觉任务
+init_cls: 10                   # 第一个任务的类别数
+increment: 10                  # 每个后续任务新增类别数 (50类 → 5 个任务)
+shuffle: false                 # 不打乱类别顺序（VTAB 使用固定任务顺序）
+
+# ── 主干网络 ──
+backbone_type: pretrained_vit_b16_224_adapter
+
+# ── 硬件 ──
+device: auto                   # 自动选空闲最大的 GPU
+seed: [1993]
+batch_size: 32
+
+# ── 优化器 ──
+optimizer: sgd
+init_lr: 0.005                 # func 阶段学习率
+rd_lr: 0.01                    # rd 阶段学习率
+weight_decay: 0.0005
+min_lr: 0
+
+# ── 训练阶段 ──
+func_epoch: 20                 # func 阶段 epoch 数
+rd_epoch: 20                   # rd 阶段 epoch 数
+
+# ── SEMA 适配器 ──
+ffn_num: 16                    # 适配器瓶颈维度
+ffn_adapter_type: adaptmlp
+
+# ── SEMA 表征描述器 ──
+rd_dim: 128                    # 自编码器压缩维度
+buffer_size: 500               # 重建误差缓冲区大小
+
+# ── SEMA 扩展检测 ──
+exp_threshold: 1               # Z-score 阈值（VTAB 用 1，更敏感）
+                               #   VTAB 跨领域任务差异大，阈值低以允许更多扩展
+adapt_start_layer: 9           # 检测起始层
+adapt_end_layer: 11            # 检测结束层
+detect_batch_size: 128         # 检测时 batch size
+
+# ── 回放内存 ──
+memory_size: 0
+memory_per_class: 0
+fixed_memory: false
+
+# ── VPT ──
+vpt_type: shallow
+prompt_token_num: 5
+
+# ── wandb ──
+wandb:
+  mode: online                 # online / offline / disabled
+  project: LiF-CL
+  tags: [sema, vtab]

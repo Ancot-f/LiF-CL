@@ -1,0 +1,62 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# SEMA — ImageNet-R (B0 Inc10, 20 tasks)
+# 对应论文: CVPR 2025 Table 1, ImageNet-R 20-task 实验
+# 用法:     python main.py --config configs/sema_inr_20tasks.yaml
+# ═══════════════════════════════════════════════════════════════════════════
+
+prefix: reproduce              # 实验前缀
+model_name: sema               # 模型名称
+
+# ── 数据集 ──
+dataset: imagenetr             # ImageNet-R: 200 类, 224×224, 含各种风格变体 (rendition)
+init_cls: 10                   # 第一个任务的类别数
+increment: 10                  # 每个后续任务新增类别数 (200类 → 1+19=20 个任务)
+shuffle: true                  # 随机打乱类别顺序
+
+# ── 主干网络 ──
+backbone_type: pretrained_vit_b16_224_adapter  # ViT-B/16 + SEMA 适配器
+
+# ── 硬件 ──
+device: auto                   # 自动选空闲最大的 GPU
+seed: [1993]                   # 随机种子
+batch_size: 32                 # 训练 batch size
+
+# ── 优化器 ──
+optimizer: sgd                 # SGD + momentum=0.9
+init_lr: 0.005                 # func 阶段学习率
+rd_lr: 0.01                    # rd 阶段学习率
+weight_decay: 0.0005           # 权重衰减
+min_lr: 0                      # 最小学习率
+
+# ── 训练阶段 ──
+func_epoch: 20                 # func 阶段 epoch 数（ImageNet-R 需要 20）
+rd_epoch: 20                   # rd 阶段 epoch 数（表征描述器训练）
+
+# ── SEMA 适配器 ──
+ffn_num: 16                    # 适配器瓶颈维度
+ffn_adapter_type: adaptmlp     # 适配器变体
+
+# ── SEMA 表征描述器 ──
+rd_dim: 128                    # 自编码器压缩维度
+buffer_size: 500               # 重建误差缓冲区大小
+
+# ── SEMA 扩展检测 ──
+exp_threshold: 2               # Z-score 阈值（ImageNet-R 用 2，较保守）
+adapt_start_layer: 9           # 检测起始层
+adapt_end_layer: 11            # 检测结束层
+detect_batch_size: 128         # 检测时 batch size
+
+# ── 回放内存 ──
+memory_size: 0                 # SEMA 不使用回放
+memory_per_class: 0
+fixed_memory: false
+
+# ── VPT ──
+vpt_type: shallow
+prompt_token_num: 5
+
+# ── wandb ──
+wandb:
+  mode: online                 # online / offline / disabled
+  project: LiF-CL
+  tags: [sema, imagenet-r]

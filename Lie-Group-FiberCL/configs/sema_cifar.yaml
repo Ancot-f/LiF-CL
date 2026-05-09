@@ -1,0 +1,71 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# SEMA — CIFAR-100 (B0 Inc10)
+# 对应论文: CVPR 2025 Table 1, CIFAR-100 10-task 实验
+# 用法:     python main.py --config configs/sema_cifar.yaml
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ── 实验标识 ──
+prefix: reproduce              # 实验前缀（用于日志目录和检查点命名）
+model_name: sema               # 模型名称（必须为 sema）
+
+# ── 数据集 ──
+dataset: cifar100              # 数据集: cifar10 / cifar100 / imagenetr / imageneta / vtab
+init_cls: 10                   # 第一个任务的类别数（论文中的 B₀）
+increment: 10                  # 每个后续任务新增的类别数
+shuffle: true                  # 是否随机打乱类别顺序（论文用固定顺序时按数据集决定）
+
+# ── 主干网络 ──
+backbone_type: pretrained_vit_b16_224_adapter
+                               # 主干网络类型:
+                               #   pretrained_vit_b16_224_adapter → ViT-B/16 + SEMA 适配器
+                               #   pretrained_vit_b16_224          → 标准 ViT-B/16
+
+# ── 硬件 ──
+device: auto                   # 设备: [auto]=自动选空闲最大的GPU, [0]=指定GPU0, -1=CPU
+seed: [1993]                   # 随机种子列表（可多个 seed 取平均）
+batch_size: 32                 # 训练 batch size（显存不够可降到 16）
+
+# ── 优化器 ──
+optimizer: sgd                 # 优化器: sgd（论文用 SGD+momentum）/ adam（AdamW）
+init_lr: 0.005                 # func 阶段的初始学习率（功能适配器训练）
+rd_lr: 0.01                    # rd 阶段的学习率（表征描述器训练，通常比 init_lr 大）
+weight_decay: 0.0005           # 权重衰减（L2 正则化系数）
+min_lr: 0                      # CosineAnnealing 的最小学习率（0=不设下限）
+
+# ── 训练阶段 ──
+func_epoch: 5                  # func 阶段的训练 epoch 数（CIFAR 只需 5，ImageNet 需 20）
+rd_epoch: 20                   # rd 阶段的训练 epoch 数（表征描述器需要更多训练）
+
+# ── SEMA 适配器 ──
+ffn_num: 16                    # 适配器的瓶颈维度（越小参数越少，论文用 16）
+ffn_adapter_type: adaptmlp     # 适配器变体: adaptmlp（标准）/ adaptformer / lora
+
+# ── SEMA 表征描述器 (Representation Descriptor) ──
+rd_dim: 128                    # 自编码器的压缩维度（输入 768 → 压缩到 128 → 重建 768）
+buffer_size: 500               # 重建误差的在线缓冲区大小（用于计算 running mean/std）
+
+# ── SEMA 扩展检测 ──
+exp_threshold: 2               # Z-score 扩展阈值（越高越保守，越不容易加新适配器）
+                               #   CIFAR=2, ImageNet-R=2, ImageNet-A/VTAB=1
+adapt_start_layer: 9           # 扩展检测的起始层（ViT 共 12 层，只在深层检测分布偏移）
+adapt_end_layer: 11            # 扩展检测的结束层（第 9-11 层参与检测，其他层不检测）
+detect_batch_size: 128         # 扩展检测时的 batch size（可以比训练 batch 大）
+
+# ── 回放内存（SEMA 不使用回放） ──
+memory_size: 0                 # 回放内存总容量（0=不使用回放，论文设置）
+memory_per_class: 0            # 每类回放样本数
+fixed_memory: false            # 是否固定每类内存（false=按任务平均分配）
+
+# ── VPT（SEMA 不使用 Prompt） ──
+vpt_type: shallow              # VPT 类型: shallow / deep（SEMA 不使用）
+prompt_token_num: 5            # Prompt token 数量
+
+# ── wandb 实验追踪 ──
+wandb:
+  mode: online                 # online / offline / disabled
+  project: LiF-CL              # wandb 项目名
+  tags: [sema, cifar100]       # 标签（用于筛选和分组）
+
+# ── 断点续跑（可选） ──
+# resume: true                 # 取消注释以从检查点恢复训练
+# checkpoint_dir: checkpoints/sema/cifar100/reproduce_1993
