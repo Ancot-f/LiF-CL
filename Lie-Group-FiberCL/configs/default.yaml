@@ -1,0 +1,28 @@
+dataset: cifar100
+init_cls: 50
+increment: 5
+seed: [42]
+device: [0]
+shuffle: true
+model_name: lie_flow
+backbone_type: vit
+optimizer: adam
+lr: 0.001
+weight_decay: 0.0005
+epochs: 10
+batch_size: 64
+num_workers: 4
+
+# Paths (default: auto-detected from LiF-CL root)
+# data_path: /custom/path/to/dataset       # override if needed
+# pre_model_path: /custom/path/to/pre-model
+
+# Lie-group specific params
+lie_group:
+  group_type: SO3
+  fiber_dim: 128
+
+# wandb settings
+wandb:
+  project: LiF-CL
+  tags: [lie-group, dev]

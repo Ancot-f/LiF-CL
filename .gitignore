@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+
+# Training outputs
+wandb/
+checkpoints/
+logs/
+results/
+nohup.out
+
+# Large data & models
+dataset/
+pre-model/
+*.pth
+*.pt
+*.tar.gz
+*.zip
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
