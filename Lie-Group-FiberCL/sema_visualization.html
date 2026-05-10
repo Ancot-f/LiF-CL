@@ -1,0 +1,944 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SEMA 自扩展适配器混合 · 精细化流程演示</title>
+<style>
+:root {
+  --bg: #060b14;
+  --panel: #0d1525;
+  --panel2: #111b2e;
+  --border: #1a2740;
+  --border2: #243452;
+  --text: #d4dbe8;
+  --text2: #8fa0bc;
+  --dim: #556580;
+  --accent: #38bdf8;
+  --accent2: #0ea5e9;
+  --green: #22c55e;
+  --green2: #16a34a;
+  --orange: #f97316;
+  --orange2: #ea580c;
+  --red: #ef4444;
+  --red2: #dc2626;
+  --purple: #a78bfa;
+  --purple2: #8b5cf6;
+  --yellow: #eab308;
+  --pink: #ec4899;
+  --cyan: #06b6d4;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  overflow-x: hidden;
+  line-height: 1.7;
+  font-size: 18px;
+}
+.hero h1 { font-size: 3rem; }
+.hero .sub { font-size: 1.25rem; }
+.hero .ref { font-size: 0.95rem; }
+.nav button { font-size: 0.95rem; padding: 0.55rem 1.3rem; }
+.card h2 { font-size: 1.35rem; }
+.card h3 { font-size: 1.1rem; }
+.card p, .card li { font-size: 0.95rem; }
+.vit-label { font-size: 0.8rem; width: 60px; }
+.vit-bar { font-size: 0.8rem; height: 32px; }
+.vit-bar .z-badge { font-size: 0.75rem; }
+.vit-bar .ad-count { font-size: 0.7rem; }
+.vit-legend { font-size: 0.78rem; }
+.ad-card h4 { font-size: 1rem; }
+.ad-card .flow { font-size: 0.75rem; }
+.ad-card .desc { font-size: 0.82rem; }
+.timeline .phase { font-size: 0.9rem; }
+.timeline .phase .num { font-size: 1.5rem; }
+.timeline .phase .tag { font-size: 0.75rem; }
+.dataflow { font-size: 0.8rem; }
+.gauge-val { font-size: 0.8rem; }
+.gauge-tag { font-size: 0.7rem; }
+.gauge-thresh-label { font-size: 0.7rem; }
+.call { font-size: 0.92rem; }
+.router-w { font-size: 0.78rem; height: 36px; min-width: 44px; }
+.step-num { font-size: 0.9rem; width: 32px; height: 32px; }
+.step-body { font-size: 0.95rem; }
+.step-body .sub { font-size: 0.82rem; }
+.badge { font-size: 0.78rem; }
+.simple-table { font-size: 0.88rem; }
+.simple-table th { font-size: 0.82rem; }
+.code-block { font-size: 0.85rem; padding: 1rem 1.3rem; }
+
+/* Hero */
+.hero {
+  background: radial-gradient(ellipse at 50% 0%, rgba(56,189,248,0.08) 0%, transparent 70%),
+              radial-gradient(ellipse at 80% 100%, rgba(167,139,250,0.06) 0%, transparent 60%),
+              var(--bg);
+  padding: 3.5rem 2rem 2.5rem;
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+}
+.hero h1 {
+  font-size: 2.4rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  background: linear-gradient(135deg, var(--accent) 0%, #7dd3fc 30%, var(--purple) 70%, #c4b5fd 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 0.6rem;
+}
+.hero .sub {
+  color: var(--text2);
+  font-size: 1.05rem;
+  margin-bottom: 0.25rem;
+}
+.hero .ref {
+  color: var(--dim);
+  font-size: 0.82rem;
+}
+
+/* Top nav */
+.nav {
+  display: flex; justify-content: center; gap: 2px;
+  padding: 0.6rem 1rem;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 100;
+  flex-wrap: wrap;
+}
+.nav button {
+  padding: 0.45rem 1.1rem;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent; color: var(--dim);
+  cursor: pointer; font-size: 0.82rem;
+  transition: all 0.2s; white-space: nowrap;
+  font-family: inherit;
+}
+.nav button:hover { color: var(--text); border-color: var(--border2); background: var(--panel2); }
+.nav button.sel {
+  color: var(--accent); background: rgba(56,189,248,0.1);
+  border-color: rgba(56,189,248,0.3);
+}
+
+/* Main area */
+.main {
+  max-width: 1200px; margin: 0 auto; padding: 2rem 1.5rem;
+}
+
+/* Card */
+.card {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 14px; padding: 1.8rem; margin-bottom: 1.5rem;
+}
+.card h2 {
+  font-size: 1.15rem; font-weight: 700; color: var(--accent);
+  margin-bottom: 1.2rem; display: flex; align-items: center; gap: 0.5rem;
+}
+.card h3 {
+  font-size: 0.95rem; font-weight: 600; color: var(--text);
+  margin: 1rem 0 0.5rem;
+}
+
+/* ViT grid */
+.vit-grid {
+  display: flex; flex-direction: column; gap: 3px;
+  position: relative; font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+.vit-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 2px 0; position: relative;
+}
+.vit-label {
+  width: 55px; font-size: 0.7rem; color: var(--dim); text-align: right;
+  flex-shrink: 0; font-weight: 600;
+}
+.vit-bar {
+  flex: 1; height: 28px; border-radius: 5px;
+  background: var(--panel2); border: 1px solid var(--border);
+  display: flex; align-items: center; padding: 0 10px;
+  font-size: 0.7rem; position: relative; overflow: visible;
+  transition: all 0.4s ease;
+}
+.vit-bar.detect { border-left: 3px solid var(--purple); }
+.vit-bar.expand { border-color: var(--accent); background: rgba(56,189,248,0.06); }
+.vit-bar .z-badge {
+  position: absolute; right: 8px; font-size: 0.65rem;
+  font-weight: 700; font-family: 'JetBrains Mono', monospace;
+}
+.vit-bar .ad-count {
+  position: absolute; right: 60px; font-size: 0.62rem;
+  color: var(--dim); background: rgba(56,189,248,0.08);
+  padding: 1px 6px; border-radius: 3px;
+}
+.vit-bar .layer-info {
+  font-size: 0.68rem; color: var(--text2);
+}
+.vit-legend {
+  display: flex; gap: 1.2rem; margin-top: 8px;
+  font-size: 0.68rem; color: var(--dim); flex-wrap: wrap;
+}
+.vit-legend span { display: flex; align-items: center; gap: 4px; }
+.vit-legend .swatch { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+
+/* Adapter cards */
+.ad-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; margin-top: 0.5rem; }
+.ad-card {
+  background: var(--panel2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 1.2rem;
+}
+.ad-card h4 { font-size: 0.85rem; font-weight: 600; margin-bottom: 0.6rem; }
+.ad-card .flow {
+  display: flex; align-items: center; gap: 3px; flex-wrap: wrap;
+  font-family: 'JetBrains Mono', monospace; font-size: 0.65rem;
+}
+.ad-card .flow .node {
+  border: 1px solid var(--accent); border-radius: 4px;
+  padding: 2px 6px; background: rgba(56,189,248,0.06);
+  text-align: center; white-space: nowrap;
+}
+.ad-card .flow .arrow { color: var(--dim); margin: 0 2px; }
+.ad-card .desc { font-size: 0.72rem; color: var(--dim); margin-top: 0.5rem; }
+
+/* Phase timeline */
+.timeline { display: flex; gap: 0; margin: 1rem 0; }
+.timeline .phase {
+  flex: 1; padding: 0.8rem; text-align: center;
+  border: 1px solid var(--border); font-size: 0.78rem;
+  position: relative; transition: all 0.3s;
+}
+.timeline .phase:first-child { border-radius: 8px 0 0 8px; }
+.timeline .phase:last-child { border-radius: 0 8px 8px 0; }
+.timeline .phase.highlight { border-color: var(--accent); background: rgba(56,189,248,0.06); }
+.timeline .phase .num { font-size: 1.3rem; font-weight: 800; }
+.timeline .phase .tag { font-size: 0.65rem; color: var(--dim); margin-top: 2px; }
+
+/* Data flow */
+.dataflow {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  justify-content: center; padding: 0.8rem;
+  font-family: 'JetBrains Mono', monospace; font-size: 0.7rem;
+}
+.dataflow .block {
+  border: 1px solid var(--border2); border-radius: 6px;
+  padding: 6px 10px; text-align: center;
+  background: var(--panel2);
+}
+.dataflow .block.hl { border-color: var(--accent); background: rgba(56,189,248,0.08); }
+.dataflow .arr { color: var(--dim); font-size: 1rem; }
+
+/* Z-score gauge */
+.gauge-set { display: flex; gap: 6px; align-items: flex-end; height: 130px; justify-content: center; padding: 0.5rem 0; position: relative; }
+.gauge-item { display: flex; flex-direction: column; align-items: center; gap: 3px; width: 50px; }
+.gauge-fill {
+  width: 28px; border-radius: 4px 4px 1px 1px;
+  transition: height 0.6s cubic-bezier(0.34,1.56,0.64,1);
+}
+.gauge-val { font-size: 0.68rem; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+.gauge-tag { font-size: 0.6rem; color: var(--dim); }
+.gauge-thresh {
+  position: absolute; left: 8%; right: 8%;
+  border-top: 2px dashed var(--red);
+}
+.gauge-thresh-label {
+  position: absolute; right: 8%; font-size: 0.6rem; color: var(--red);
+  margin-top: -16px;
+}
+
+/* Callout */
+.call {
+  padding: 0.7rem 1rem; border-radius: 8px; font-size: 0.8rem; margin: 0.7rem 0;
+  border: 1px solid;
+}
+.call.info { background: rgba(56,189,248,0.05); border-color: rgba(56,189,248,0.2); color: var(--text2); }
+.call.warn { background: rgba(249,115,22,0.05); border-color: rgba(249,115,22,0.2); }
+.call.good { background: rgba(34,197,94,0.05); border-color: rgba(34,197,94,0.2); }
+.call b { color: var(--text); }
+
+/* Router */
+.router-row { display: flex; align-items: center; gap: 6px; padding: 0.5rem; justify-content: center; flex-wrap: wrap; }
+.router-w {
+  height: 30px; border-radius: 6px; display: flex; align-items: center;
+  justify-content: center; font-size: 0.65rem; font-weight: 700;
+  min-width: 36px; font-family: 'JetBrains Mono', monospace;
+  transition: all 0.5s ease;
+}
+
+/* Progress */
+.progress-bar { height: 3px; background: var(--border); border-radius: 2px; margin: 1rem 0; }
+.progress-fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width 0.5s; }
+
+/* Two-col */
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+@media (max-width: 768px) { .cols { grid-template-columns: 1fr; } }
+
+/* Code block */
+.code-block {
+  background: rgba(0,0,0,0.5); border-radius: 10px;
+  border: 1px solid var(--border2);
+  padding: 1rem 1.3rem; font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 0.85rem; color: #c9d1d9; line-height: 1.9;
+  overflow-x: auto; white-space: pre;
+  tab-size: 4;
+}
+.code-block .kw { color: var(--purple); }
+.code-block .fn { color: var(--accent); }
+.code-block .cmt { color: var(--dim); font-style: italic; }
+.code-block .num { color: var(--orange); }
+.code-block .str { color: var(--green); }
+
+/* Step */
+.step-row { display: flex; gap: 0.8rem; align-items: flex-start; margin-bottom: 0.6rem; }
+.step-num {
+  width: 28px; height: 28px; border-radius: 50%;
+  background: var(--border); display: flex; align-items: center;
+  justify-content: center; font-size: 0.75rem; font-weight: 700;
+  flex-shrink: 0; color: var(--dim);
+}
+.step-num.done { background: rgba(34,197,94,0.15); color: var(--green); }
+.step-num.cur { background: rgba(56,189,248,0.15); color: var(--accent); animation: glow2 1.5s infinite; }
+.step-body { font-size: 0.82rem; padding-top: 2px; }
+.step-body .main { color: var(--text); }
+.step-body .sub { color: var(--dim); font-size: 0.72rem; }
+
+@keyframes glow2 {
+  0%,100% { box-shadow: 0 0 0 rgba(56,189,248,0); }
+  50% { box-shadow: 0 0 12px rgba(56,189,248,0.3); }
+}
+@keyframes fadeSlide {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.anim-in { animation: fadeSlide 0.4s ease both; }
+
+/* Counter badge */
+.badge {
+  display: inline-block; padding: 1px 7px; border-radius: 999px;
+  font-size: 0.7rem; font-weight: 600;
+}
+.badge.blue { background: rgba(56,189,248,0.12); color: var(--accent); }
+.badge.green { background: rgba(34,197,94,0.12); color: var(--green); }
+.badge.red { background: rgba(239,68,68,0.12); color: var(--red); }
+.badge.purple { background: rgba(167,139,250,0.12); color: var(--purple); }
+
+/* Table */
+.simple-table { width: 100%; border-collapse: collapse; font-size: 0.75rem; margin: 0.8rem 0; }
+.simple-table th { text-align: left; padding: 6px 10px; color: var(--dim); font-weight: 600; font-size: 0.7rem; border-bottom: 1px solid var(--border); }
+.simple-table td { padding: 6px 10px; border-bottom: 1px solid rgba(26,39,64,0.5); }
+.simple-table tr:hover td { background: rgba(56,189,248,0.03); }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <h1>SEMA · Self-Expansion with Mixture of Adapters</h1>
+  <div class="sub">自扩展适配器混合 — 持续学习全流程精细化交互演示</div>
+  <div class="ref">CVPR 2025 | 预训练 ViT + 参数高效微调 | 子线性增长 · 零遗忘 · 软路由</div>
+</div>
+
+<nav class="nav" id="nav">
+  <button data-to="0" class="sel">1. 架构总览</button>
+  <button data-to="1">2. Task 0 初始训练</button>
+  <button data-to="2">3. func 阶段详解</button>
+  <button data-to="3">4. rd 阶段详解</button>
+  <button data-to="4">5. 冻结与隔离</button>
+  <button data-to="5">6. 扩展检测 (Z-score)</button>
+  <button data-to="6">7. 触发扩展</button>
+  <button data-to="7">8. 软路由组合</button>
+  <button data-to="8">9. 多任务演示</button>
+  <button data-to="9">10. 总结对比</button>
+</nav>
+
+<div class="main" id="main"></div>
+
+<script>
+// ── State ──
+let cur = 0;
+let timers = [];
+
+function clr() { timers.forEach(clearTimeout); timers = []; }
+
+// ── Helpers ──
+function E(tag, attrs={}, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k,v] of Object.entries(attrs)) {
+    if (k === 'style' && typeof v === 'object') Object.assign(el.style, v);
+    else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
+    else if (k === 'cls') el.className = v;
+    else if (k === 'html') el.innerHTML = v;
+    else el.setAttribute(k, v);
+  }
+  kids.forEach(c => {
+    if (c == null) return;
+    if (typeof c === 'string' || typeof c === 'number') el.appendChild(document.createTextNode(String(c)));
+    else if (c instanceof Node) el.appendChild(c);
+  });
+  return el;
+}
+
+function vitRow(i, opts={}) {
+  const isDetect = i >= (opts.dStart??9) && i <= (opts.dEnd??11);
+  const n = (opts.counts||[])[i] || 1;
+  const z = (opts.zs||[])[i] || 0;
+  const th = opts.thresh ?? 2;
+  const lbl = E('span', {cls:'vit-label'}, `L${i}`);
+  const cls = ['vit-bar'];
+  if (isDetect) cls.push('detect');
+  if (opts.highlight === i) cls.push('expand');
+  const bar = E('div', {cls: cls.join(' ')},
+    E('span', {cls:'layer-info'}, isDetect ? '检测层' : ''),
+  );
+  if (isDetect && n > 1) bar.appendChild(E('span', {cls:'ad-count'}, `${n} Ad`));
+  if (isDetect && z > 0) {
+    const zc = z > th ? 'var(--red)' : z > th*0.75 ? 'var(--yellow)' : 'var(--green)';
+    bar.appendChild(E('span', {cls:'z-badge', style:{color:zc}}, `Z=${z.toFixed(1)}`));
+  }
+  return E('div', {cls:'vit-row'}, lbl, bar);
+}
+
+function vitDiagram(opts={}) {
+  const rows = Array.from({length:12}, (_,i) => vitRow(i, opts));
+  rows.push(E('div', {cls:'vit-legend'},
+    E('span', {}, E('span', {cls:'swatch', style:{background:'var(--purple)'}}), 'L9-L11 检测层 (可触发扩展)'),
+    E('span', {}, E('span', {cls:'swatch', style:{background:'var(--border)'}}), 'L0-L8 标准层 (不检测)'),
+    E('span', {}, E('span', {cls:'swatch', style:{background:'var(--accent)'}}), '含多个 Adapter'),
+  ));
+  return E('div', {cls:'vit-grid'}, ...rows);
+}
+
+function phaseBox(type, title, desc, badge) {
+  const map = {func:'var(--orange)', rd:'var(--green)', freeze:'var(--purple)', detect:'var(--accent)'};
+  return E('div', {style:{borderLeft:`3px solid ${map[type]||'var(--border)'}`,padding:'0.5rem 1rem',margin:'0.5rem 0',background:'var(--panel2)',borderRadius:'0 6px 6px 0'}},
+    E('div', {style:{display:'flex',alignItems:'center',gap:'0.5rem',marginBottom:'0.2rem'}},
+      E('strong', {}, title),
+      badge ? E('span', {cls:`badge ${badge}`}, badge) : null,
+    ),
+    E('div', {style:{fontSize:'0.78rem',color:'var(--text2)'}}, desc),
+  );
+}
+
+function callout(type, html) {
+  const m = {info:'info', warn:'warn', good:'good'};
+  return E('div', {cls:`call ${m[type]||'info'}`, html});
+}
+
+function stepRow(n, status, main, sub) {
+  return E('div', {cls:'step-row anim-in', style:{animationDelay:`${n*0.15}s`}},
+    E('span', {cls:`step-num ${status}`}, n),
+    E('span', {cls:'step-body'},
+      E('span', {cls:'main'}, main),
+      sub ? E('br') : null,
+      sub ? E('span', {cls:'sub'}, sub) : null,
+    ),
+  );
+}
+
+function codeBlock(text) {
+  // 1. First escape HTML entities so <, >, & display correctly
+  text = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  // 2. Then apply syntax highlighting
+  const hl = text
+    .replace(/(def |class |for |if |return|import |from )/g, '<span class="kw">$1</span>')
+    .replace(/(_train_new|_detect_outlier|_init_train|add_adapter|end_of_task_training|freeze_functional|freeze_rd|fix_router|incremental_train|forward_features|compute_reconstruction_loss)/g, '<span class="fn">$1</span>')
+    .replace(/(#.*)/g, '<span class="cmt">$1</span>')
+    .replace(/(\d+\.?\d*)(?=[,\s)])/g, '<span class="num">$1</span>')
+    .replace(/(\".*?\")/g, '<span class="str">$1</span>');
+  return E('div', {cls:'code-block', html: hl});
+}
+
+// ── Scenes ──
+
+function scene0() {
+  return [
+    E('div', {cls:'card'},
+      E('h2', {}, '🏗️ 1. SEMA 整体架构'),
+      E('p', {style:{fontSize:'0.85rem',color:'var(--text2)',marginBottom:'1rem'}},
+        'SEMA 在冻结的预训练 ViT-B/16 每个 Block 中嵌入 <b style="color:var(--accent)">SEMAModules</b>。'
+        + '每个 SEMAModules 维护一组 Adapter (初始 1 个)，深层 (L9-L11) 具备<b style="color:var(--purple)">自扩展检测</b>能力。'
+        + '当新数据分布与历史偏差过大时，<b>自动添加 Adapter</b> 并训练；所有旧 Adapter 被冻结，永不遗忘。'),
+      vitDiagram({counts:[1,1,1,1,1,1,1,1,1,4,2,3], dStart:9, dEnd:11}),
+      E('p', {style:{fontSize:'0.7rem',color:'var(--dim)',textAlign:'center',marginTop:'0.5rem'}},
+        '↑ 训练多任务后的状态: L9 有 4 个 Adapter, L10 有 2 个, L11 有 3 个 (子线性增长)'),
+    ),
+    E('div', {cls:'card'},
+      E('h2', {}, '🧩 三核心组件'),
+      E('div', {cls:'ad-cards'},
+        E('div', {cls:'ad-card'},
+          E('h4', {style:{color:'var(--accent)'}}, '🔧 Adapter — 功能适配器'),
+          E('div', {cls:'flow'},
+            E('span', {cls:'node'}, '[B,N,768]'), E('span', {cls:'arrow'}, '→'),
+            E('span', {cls:'node'}, 'LN(768)'), E('span', {cls:'arrow'}, '→'),
+            E('span', {cls:'node'}, '↓ Linear(768→16)'), E('span', {cls:'arrow'}, '→'),
+            E('span', {cls:'node'}, 'ReLU'), E('span', {cls:'arrow'}, '→'),
+            E('span', {cls:'node'}, '↑ Linear(16→768)'),
+          ),
+          E('div', {cls:'desc'}, '瓶颈 MLP，参数量仅 2×768×16≈24K。LoRA 风格初始化 (up_proj 全零) 保证初始输出为零，不影响预训练特征。'),
+        ),
+        E('div', {cls:'ad-card'},
+          E('h4', {style:{color:'var(--green)'}}, '📊 AE — 表征描述器'),
+          E('div', {cls:'flow'},
+            E('span', {cls:'node'}, 'x̄ [B,768]'), E('span', {cls:'arrow'}, '→'),
+            E('span', {cls:'node'}, 'Enc(768→128)'), E('span', {cls:'arrow'}, '→'),
+            E('span', {cls:'node'}, 'z [B,128]'), E('span', {cls:'arrow'}, '→'),
+            E('span', {cls:'node'}, 'Dec(128→768)'), E('span', {cls:'arrow'}, '→'),
+            E('span', {cls:'node'}, 'x̂ [B,768]'),
+          ),
+          E('div', {cls:'desc'}, '线性自编码器 ≡ 秩-128 PCA 近似。重建误差 MSE(x̄, x̂) 输入 Records 缓冲区计算 Z-score，用于分布偏移检测。'),
+        ),
+        E('div', {cls:'ad-card'},
+          E('h4', {style:{color:'var(--orange)'}}, '🎯 Router — 软路由器'),
+          E('div', {cls:'flow'},
+            E('span', {cls:'node'}, 'x̄ [B,768]'), E('span', {cls:'arrow'}, '→'),
+            E('span', {cls:'node'}, 'Linear(768→M)'), E('span', {cls:'arrow'}, '→'),
+            E('span', {cls:'node'}, 'softmax'), E('span', {cls:'arrow'}, '→'),
+            E('span', {cls:'node'}, 'α ∈ [B,M]'),
+          ),
+          E('div', {cls:'desc'}, '对输入 token 均值做 softmax 得到 M 个权重，加权组合所有 Adapter 输出。每添加一个 Adapter 时路由列数从 M 扩展到 M+1。'),
+        ),
+      ),
+    ),
+  ];
+}
+
+function scene1() {
+  return [
+    E('div', {cls:'card'},
+      E('h2', {}, '📝 2. Task 0 — 第一个任务的完整训练流程'),
+      E('p', {style:{fontSize:'0.85rem',color:'var(--text2)',marginBottom:'1rem'}},
+        'Task 0 是 SEMA 的初始化任务。模型从零开始，每层只有 <b>1 个 Adapter</b>，'
+        + '需要完成 <b>两阶段训练</b> (func + rd)，然后<b>冻结所有参数</b>。'),
+      E('div', {cls:'timeline', id:'tl'},
+        ['初始化网络','func 阶段','rd 阶段','冻结参数'].map((t,i) =>
+          E('div', {cls:`phase anim-in`, style:{animationDelay:`${i*0.15}s`}, id:`ph${i}`},
+            E('div', {cls:'num'}, i+1),
+            E('div', {style:{fontWeight:600}}, t),
+            E('div', {cls:'tag'}, ['创建 ViT','训练 Adapter','训练 AE','锁定参数'][i]),
+          )
+        ),
+      ),
+      vitDiagram({counts:Array(12).fill(1), dStart:9, dEnd:11}),
+      E('p', {style:{fontSize:'0.7rem',color:'var(--dim)',textAlign:'center'}}, '初始状态: 12 层，每层 1 个 Adapter'),
+    ),
+    E('div', {cls:'card'},
+      E('h2', {}, '🔄 数据流 ─ 一个 batch 的前向传播'),
+      E('div', {cls:'dataflow'},
+        E('div', {cls:'block'}, 'images\n[B,3,224,224]'),
+        E('div', {cls:'arr'}, '→'),
+        E('div', {cls:'block'}, 'PatchEmbed\n[B,196,768]'),
+        E('div', {cls:'arr'}, '→'),
+        E('div', {cls:'block'}, '+ CLS + Pos\n[B,197,768]'),
+        E('div', {cls:'arr'}, '→'),
+        E('div', {cls:'block hl'}, 'Block 0\nAttn→Adapter→MLP'),
+        E('div', {cls:'arr'}, '→'),
+        E('div', {cls:'block'}, '... × 12'),
+        E('div', {cls:'arr'}, '→'),
+        E('div', {cls:'block hl'}, 'Block 11\nAttn→Adapter→MLP'),
+        E('div', {cls:'arr'}, '→'),
+        E('div', {cls:'block'}, 'CLS token\n[B,768]'),
+        E('div', {cls:'arr'}, '→'),
+        E('div', {cls:'block hl'}, 'fc\n[B,N_classes]'),
+        E('div', {cls:'arr'}, '→'),
+        E('div', {cls:'block'}, 'logits → CE loss'),
+      ),
+      E('p', {style:{fontSize:'0.7rem',color:'var(--dim)',textAlign:'center',marginTop:'0.5rem'}},
+        '每个 Block 中: SEMAModules.forward() → 运行所有 Adapter → Router 加权组合 → 返回 func_out + rd_loss + added_record'),
+    ),
+  ];
+}
+
+function scene2() {
+  return [
+    E('div', {cls:'card'},
+      E('h2', {}, '⚙️ 3. func 阶段 — 功能适配器训练'),
+      E('p', {style:{fontSize:'0.85rem',color:'var(--text2)',marginBottom:'0.8rem'}},
+        'func 阶段使用<b>交叉熵损失</b>训练 Adapter 的功能模块、Router 和分类器头。'
+        + '这是让模型<b>"学会分类"</b>的阶段。'),
+      phaseBox('func', '优化器配置', 'update_optimizer_and_scheduler() 筛选含 "functional" / "router" / "fc" 的参数', 'blue'),
+      phaseBox('func', '损失函数', 'CrossEntropy(logits[:, :total_classes], targets)，旧类 logits 设为 -inf', 'blue'),
+      phaseBox('func', '训练 epoch', 'func_epoch 次 (CIFAR-100: 5, ImageNet-R: 20)', 'blue'),
+      codeBlock(
+`def _init_train(self, total_epoch, ..., phase="func"):
+    for epoch in range(total_epoch):
+        for (_, inputs, targets) in train_loader:
+            outcome = self._network(inputs)        # forward
+            logits = outcome["logits"]
+            logits = logits[:, :total_classes]      # 只保留已见类
+            if cur_task > 0:
+                logits[:, :known_classes] = -inf   # 旧类设 -inf
+            loss = CrossEntropy(logits, targets)    # func 阶段: CE
+            loss.backward()
+            optimizer.step()                        # 只更新 func+router+fc`),
+    ),
+  ];
+}
+
+function scene3() {
+  return [
+    E('div', {cls:'card'},
+      E('h2', {}, '📊 4. rd 阶段 — 表征描述器训练'),
+      E('p', {style:{fontSize:'0.85rem',color:'var(--text2)',marginBottom:'0.8rem'}},
+        'rd 阶段使用<b>MSE 重建损失</b>训练自编码器 (AE)。'
+        + '这是让模型<b>"记住特征分布"</b>的阶段 — AE 学会重建当前任务的特征，'
+        + '后续任务中重建误差大就说明"这个特征我没见过"。'),
+      phaseBox('rd', '优化器配置', 'update_rd_optimizer_and_scheduler() 筛选含 "rd" 的参数. 学习率 rd_lr 通常高于 func 阶段', 'green'),
+      phaseBox('rd', '损失函数', 'MSE(AE(x_mean), x_mean)，逐样本计算重建误差', 'green'),
+      phaseBox('rd', '训练 epoch', 'rd_epoch 次 (通常 20，比 func 多)，确保 AE 充分收敛', 'green'),
+      E('div', {style:{marginTop:'1rem'}},
+        E('h3', {}, '🔬 AE 重建误差的计算流程'),
+        E('div', {cls:'dataflow'},
+          E('div', {cls:'block'}, 'x [B,N,768]\ntoken 序列'),
+          E('div', {cls:'arr'}, '→'),
+          E('div', {cls:'block hl'}, 'mean(dim=1)\n[B,768]'),
+          E('div', {cls:'arr'}, '→'),
+          E('div', {cls:'block hl'}, 'encoder\n768→128'),
+          E('div', {cls:'arr'}, '→'),
+          E('div', {cls:'block'}, 'z [B,128]'),
+          E('div', {cls:'arr'}, '→'),
+          E('div', {cls:'block hl'}, 'decoder\n128→768'),
+          E('div', {cls:'arr'}, '→'),
+          E('div', {cls:'block'}, 'x̂ [B,768]'),
+          E('div', {cls:'arr'}, '→'),
+          E('div', {cls:'block hl'}, 'MSE(x̂ᵢ, xᵢ)\n逐样本计算'),
+          E('div', {cls:'arr'}, '→'),
+          E('div', {cls:'block'}, 'lossᵢ [B]'),
+        ),
+      ),
+      callout('info', '<b>为什么 AE 是线性的？</b> 线性 AE 等价于对特征矩阵做秩-128 SVD 近似 [Baldi & Hornik, 1989]。'
+        + '它学到的 128 维主成分捕获了当前任务特征的主要变化方向。'
+        + '新任务如果特征方向差异大，重建误差自然高 — 这是 Z-score 检测的数学基础。'),
+    ),
+  ];
+}
+
+function scene4() {
+  return [
+    E('div', {cls:'card'},
+      E('h2', {}, '🔒 5. 冻结与隔离 — 零遗忘机制'),
+      E('p', {style:{fontSize:'0.85rem',color:'var(--text2)',marginBottom:'0.8rem'}},
+        '每个任务训练结束后, <b>end_of_task_training()</b> 执行三个操作，将已学知识<b>物理锁定</b>。'),
+      E('div', {cls:'cols'},
+        E('div', {},
+          phaseBox('freeze', '① freeze_functional()', '遍历所有 Adapter.functional 参数: param.requires_grad=False, param._grad=None.<br>如果存在 new_router → fix_router(): 合并路由列. 然后 Router 整体冻结.', 'purple'),
+          phaseBox('freeze', '② freeze_rd()', '遍历所有 Adapter.rd (AE) 参数: requires_grad=False.<br>关键: adapter.rd_loss_record.updating = False — 统计缓冲区停止更新.', 'purple'),
+          phaseBox('freeze', '③ reset_newly_added_status()', 'self.newly_added = False; 每个 Adapter.newly_added = False.<br>self.added_for_task = False — 允许下一任务再次触发扩展.', 'purple'),
+          phaseBox('freeze', '④ fix_router() — 路由列合并', '旧 Router[1,768] + new_router[1,768] → 拼接 → Router[2,768]. 旧权重保留, 新权重从训练好的 new_router 复制.', 'purple'),
+        ),
+        E('div', {},
+          E('h3', {style:{marginTop:0}}, '🛡️ 冻结后的保证'),
+          E('table', {cls:'simple-table'},
+            E('tr', {}, E('th', {}, '组件'), E('th', {}, '状态'), E('th', {}, '效果')),
+            ...['Adapter MLP 权重|🔒 冻结|旧任务性能永不下降',
+               'Adapter AE 权重|🔒 冻结|分布检测器固定不变',
+               'Router 旧列|🔒 冻结|旧 Adapter 的激活权重固定',
+               'Records 统计|🛑 停止|不再收集新统计',
+               'Router 新列|🔓 可训练|下一任务可调整激活权重',
+               '新 Adapter|🔓 可训练|下一任务的可塑性来源',
+            ].map(r => {
+              const [c,s,e] = r.split('|');
+              return E('tr', {},
+                E('td', {}, c),
+                E('td', {style:{color: s.includes('冻结')||s.includes('停止') ? 'var(--red)' : 'var(--green)'}}, s),
+                E('td', {style:{fontSize:'0.7rem',color:'var(--dim)'}}, e),
+              );
+            }),
+          ),
+        ),
+      ),
+      callout('good', '<b>零遗忘的物理保证:</b> 冻结后，梯度不会流经旧 Adapter，它们的权重在数学上<b>不可变</b>。'
+        + '这与 rehearsal (回放) 或 KD (蒸馏) 不同 — 那些方法只是"减小"遗忘, SEMA 是<b>消除</b>遗忘。'),
+    ),
+  ];
+}
+
+function scene5() {
+  return [
+    E('div', {cls:'card'},
+      E('h2', {}, '🔍 6. 扩展检测 — Z-score 分布偏移判断'),
+      E('p', {style:{fontSize:'0.85rem',color:'var(--text2)',marginBottom:'1rem'}},
+        'Task > 0 开始时，设置 <b>detecting_outlier = True</b>, 送入新任务数据。'
+        + '所有旧 AE 计算重建误差 → 查 Z-score → 如果某层<b>所有</b> AE 的 Z-score 都超过阈值 τ → 触发扩展。'),
+      E('div', {style:{position:'relative', margin:'1rem 0'}},
+        E('div', {cls:'gauge-thresh', style:{top:'28px'}}),
+        E('div', {cls:'gauge-thresh-label', style:{top:'8px'}}, `阈值 Z = 2.0`),
+        E('div', {cls:'gauge-set', id:'gauge'},
+          ...[{l:9,z:2.8,c:'#ef4444'},{l:10,z:3.1,c:'#ef4444'},{l:11,z:2.5,c:'#ef4444'},
+             {l:8,z:1.5,c:'#eab308'},{l:7,z:1.2,c:'#22c55e'},{l:6,z:0.8,c:'#22c55e'},
+          ].map(({l,z,c}) =>
+            E('div', {cls:'gauge-item anim-in', style:{animationDelay:`${l*0.08}s`}},
+              E('span', {cls:'gauge-val', style:{color:c}}, z.toFixed(1)),
+              E('div', {cls:'gauge-fill', style:{height:`${Math.min(z/4*120,120)}px`, background:c}}),
+              E('span', {cls:'gauge-tag'}, `L${l}`),
+            )
+          )),
+        ),
+      ),
+      E('div', {style:{textAlign:'center',margin:'0.5rem 0',fontSize:'0.85rem'}},
+        E('span', {style:{color:'var(--red)',fontWeight:700}}, '🔴 L9 Z=2.8 L10 Z=3.1 L11 Z=2.5 全部 > 2.0 → 触发扩展!'),
+      ),
+      callout('warn',
+        '<b>为什么检查"所有 AE 都超阈值"而非个别？</b> 这是保守策略。个别的 AE 可能因噪声或特定模式而产生高 Z-score。'
+        + '只有<b>所有</b> AE 都认为异常时，才确认这是真正的分布偏移。'
+        + '这等价于多重假设检验，降低了误触发扩展的概率。'),
+      codeBlock(
+`# SEMAModules.forward() 中的扩展检测逻辑
+z_scores = [adapter(x)[2] for adapter in self.adapters]
+addition = (
+    z_scores.mean(dim=1).min() > exp_threshold  # 最"正常"的 AE 也超阈值
+    and layer_id in [adapt_start, adapt_end]      # 只在检测层范围
+    and not self.added_for_task                    # 本任务还没扩展过
+    and self.detecting_outlier                     # 处于检测模式
+)
+if addition:
+    self.add_adapter()   # 触发!`),
+  ];
+}
+
+function scene6() {
+  return [
+    E('div', {cls:'card'},
+      E('h2', {}, '🔥 7. 触发扩展 — add_adapter() + 训练'),
+      E('p', {style:{fontSize:'0.85rem',color:'var(--text2)',marginBottom:'1rem'}},
+        '检测通过后, <b>add_adapter()</b> 创建新的 AdapterModule (Adapter + AE + Records) 和新的路由列 (初始权重为 0),'
+        + '然后立即执行 <b>_train_new()</b>: func 阶段 + rd 阶段。'),
+      E('div', {style:{display:'flex',gap:'1rem',flexWrap:'wrap',marginBottom:'1rem'}},
+        E('div', {style:{flex:1,minWidth:'250px',border:'1px solid var(--border)',borderRadius:10,padding:'1rem',textAlign:'center'}},
+          E('div', {style:{fontSize:'0.7rem',color:'var(--dim)',marginBottom:'0.5rem'}}, '扩展前: Block 9'),
+          vitDiagram({counts:Array(12).fill(1), dStart:9, dEnd:11, highlight:9}),
+          E('div', {style:{fontSize:'0.65rem',color:'var(--dim)',marginTop:'0.5rem'}}, '1 Adapter · Router[1]'),
+        ),
+        E('div', {style:{fontSize:'2rem',display:'flex',alignItems:'center',color:'var(--accent)'}}, '→'),
+        E('div', {style:{flex:1,minWidth:'250px',border:'1px solid var(--accent)',borderRadius:10,padding:'1rem',textAlign:'center',background:'rgba(56,189,248,0.03)'}},
+          E('div', {style:{fontSize:'0.7rem',color:'var(--accent)',marginBottom:'0.5rem'}}, '扩展后: Block 9'),
+          vitDiagram({counts:[1,1,1,1,1,1,1,1,1,2,1,1], dStart:9, dEnd:11, highlight:9}),
+          E('div', {style:{fontSize:'0.65rem',color:'var(--accent)',marginTop:'0.5rem'}}, '2 Adapters · Router[2] · new_router → fix_router'),
+        ),
+      ),
+      E('div', {cls:'cols'},
+        E('div', {},
+          E('h3', {}, '📋 扩展步骤'),
+          stepRow(1, 'cur', 'add_adapter(initialize=False)',
+            '创建 AdapterModule → self.adapters.append()'),
+          stepRow(2, 'cur', 'set_new_router()',
+            '创建 new_router = Linear(768,1) (初始权重为 0)'),
+          stepRow(3, 'cur', '_train_new() → func 阶段',
+            '训练新 Adapter 的 functional + 新路由列 + fc'),
+          stepRow(4, 'cur', '_train_new() → rd 阶段',
+            '训练新 Adapter 的 AE (重建误差最小化)'),
+          stepRow(5, 'cur', 'freeze_functional() + freeze_rd()',
+            '冻结新训练的组件 → fix_router() 合并路由列'),
+          stepRow(6, 'cur', '递归检测',
+            '如果数据中仍有不同分布 → 可能触发更多扩展'),
+        ),
+        E('div', {},
+          E('h3', {}, '📐 Router 扩展的数学'),
+          E('p', {style:{fontSize:'0.78rem',color:'var(--text2)',marginBottom:'0.5rem'}},
+            '扩展前: Router = Linear(768→1), logits ∈ [B,1]'),
+          E('p', {style:{fontSize:'0.78rem',color:'var(--text2)',marginBottom:'0.5rem'}},
+            '扩展: new_router = Linear(768→1), 权重初始为 0'),
+          E('p', {style:{fontSize:'0.78rem',color:'var(--text2)',marginBottom:'0.5rem'}},
+            'forward: logits = [Router(x), new_router(x)] ∈ [B,2]'),
+          E('p', {style:{fontSize:'0.78rem',color:'var(--text2)',marginBottom:'0.5rem'}},
+            '训练后: fix_router() 把两个 Linear(768→1) 拼接成 Linear(768→2)'),
+          E('p', {style:{fontSize:'0.78rem',color:'var(--accent)'}},
+            '结果: 旧路由权重保留，新路由权重从训练中获得'),
+        ),
+      ),
+    ),
+  ];
+}
+
+function scene7() {
+  const M = 4;
+  const weights = [0.05, 0.10, 0.15, 0.70];
+  return [
+    E('div', {cls:'card'},
+      E('h2', {}, '🎯 8. 软路由组合 — Mixture of Adapters'),
+      E('p', {style:{fontSize:'0.85rem',color:'var(--text2)',marginBottom:'1rem'}},
+        'SEMA 使用 <b>softmax 加权组合</b>而非硬选择。所有 Adapter 都参与输出，权重由 Router 根据输入动态计算。'),
+      E('h3', {}, 'Block 9 的路由器 (M=4 个 Adapter)'),
+      E('div', {cls:'router-row', style:{marginBottom:'1.5rem'}},
+        ...weights.map((w,i) => {
+          const cls = i===3 ? 'router-w' : 'router-w';
+          const bg = i===3 ? 'var(--accent)' : i===2 ? 'rgba(167,139,250,0.4)' : i===1 ? 'rgba(100,116,139,0.3)' : 'rgba(100,116,139,0.2)';
+          const labels = ['Ad₀ (T0)','Ad₁ (T1)','Ad₂ (T2)','Ad₃ (T3 当前)'];
+          return E('div', {style:{display:'flex',flexDirection:'column',alignItems:'center',gap:3}},
+            E('span', {style:{fontSize:'0.65rem',color:'var(--dim)'}}, labels[i]),
+            E('div', {cls, style:{width:`${Math.max(w*180+25,42)}px`,background:bg,color:i===3?'#000':'var(--dim)'}}, `${(w*100).toFixed(0)}%`),
+          );
+        }),
+      ),
+      E('p', {style:{fontSize:'0.7rem',color:'var(--dim)',textAlign:'center'}},
+        '↑ 新 Adapter (Ad₃) 获得 70% 权重，但旧 Adapter 仍参与 (共 30%) — 实现跨任务知识复用'),
+      E('div', {cls:'cols', style:{marginTop:'1rem'}},
+        E('div', {},
+          E('h3', {}, '✅ SEMA 软路由'),
+          E('ul', {style:{fontSize:'0.78rem',color:'var(--text2)',paddingLeft:'1.2rem',lineHeight:'2'}},
+            E('li', {}, 'output = Σᵢ softmax(Router(x̄))ᵢ · Adapterᵢ(x)'),
+            E('li', {}, '权重由数据驱动，不需要 task ID'),
+            E('li', {}, '旧 Adapter 可被部分激活 (知识复用)'),
+            E('li', {}, '新 Adapter 从 0 权重开始平滑增长'),
+            E('li', {}, '梯度同时流向新 Adapter 和新路由列'),
+          ),
+        ),
+        E('div', {},
+          E('h3', {}, '❌ 硬选择 (对比)'),
+          E('ul', {style:{fontSize:'0.78rem',color:'var(--dim)',paddingLeft:'1.2rem',lineHeight:'2'}},
+            E('li', {}, 'if task_id == N: use Adapter_N'),
+            E('li', {}, '必须知道 task ID (推理时不现实)'),
+            E('li', {}, '选错 → 完全错误的输出'),
+            E('li', {}, '无法跨任务复用知识'),
+            E('li', {}, '每个任务独占一个 Adapter (浪费)'),
+          ),
+        ),
+      ),
+    ),
+  ];
+}
+
+function scene8() {
+  return [
+    E('div', {cls:'card'},
+      E('h2', {}, '🎬 9. 多任务持续学习 — 完整演示'),
+      E('p', {style:{fontSize:'0.85rem',color:'var(--text2)',marginBottom:'1rem'}},
+        '从 Task 0 开始，模拟 5 个任务的完整持续学习过程。观察适配器数量的子线性增长。'),
+      E('div', {id:'demo-area'}),
+      E('div', {cls:'progress-bar', style:{marginTop:'1rem'}},
+        E('div', {cls:'progress-fill', id:'demo-prog', style:{width:'0%'}}),
+      ),
+      E('div', {style:{display:'flex',justifyContent:'center',gap:'0.5rem',marginTop:'0.5rem'}},
+        E('button', {onclick:runDemo, style:{padding:'0.4rem 1.2rem',border:'1px solid var(--accent)',borderRadius:6,background:'rgba(56,189,248,0.1)',color:'var(--accent)',cursor:'pointer',fontFamily:'inherit'}}, '▶ 开始演示'),
+        E('button', {onclick:()=>{clr();renderDemo(0);}, style:{padding:'0.4rem 1.2rem',border:'1px solid var(--border)',borderRadius:6,background:'transparent',color:'var(--dim)',cursor:'pointer',fontFamily:'inherit'}}, '↺ 重置'),
+      ),
+    ),
+  ];
+}
+
+const demoSteps = [
+  {task:0, stage:'初始化', counts:[1,1,1,1,1,1,1,1,1,1,1,1], info:'Task 0: 初始训练 (func 5ep + rd 20ep) → 冻结', cls:'info'},
+  {task:1, stage:'检测', counts:[1,1,1,1,1,1,1,1,1,1,1,1], info:'Task 1: detecting_outlier=True → 计算 Z-scores', cls:'warn', zs:[0.5,0.6,0.8,1.1,0.7,0.4,0.9,1.3,1.5,2.8,3.1,2.5]},
+  {task:1, stage:'扩展', counts:[1,1,1,1,1,1,1,1,1,2,1,1], info:'L9 触发! add_adapter → func+rd 训练 → freeze → fix_router[2]', cls:'good', highlight:9},
+  {task:2, stage:'检测', counts:[1,1,1,1,1,1,1,1,1,2,1,1], info:'Task 2: Z-scores 检测中. L10 Z=2.7 L11 Z=2.9 超阈值', cls:'warn', zs:[0.4,0.5,0.7,1.0,0.6,0.3,0.8,1.2,1.4,1.8,2.7,2.9]},
+  {task:2, stage:'扩展', counts:[1,1,1,1,1,1,1,1,1,2,2,1], info:'L10 触发! add_adapter → func+rd 训练 → freeze → fix_router[2]', cls:'good', highlight:10},
+  {task:3, stage:'检测', counts:[1,1,1,1,1,1,1,1,1,2,2,1], info:'Task 3: Z-scores 正常 (复用旧 Adapter). 只做 Router 微调.', cls:'info', zs:[0.3,0.4,0.6,0.9,0.5,0.3,0.7,1.1,1.3,1.5,1.4,1.6]},
+  {task:4, stage:'检测', counts:[1,1,1,1,1,1,1,1,1,2,2,1], info:'Task 4: Z-scores 正常. 再次复用. 子线性增长确认!', cls:'info', zs:[0.3,0.4,0.5,0.8,0.5,0.3,0.6,1.0,1.2,1.3,1.2,1.4]},
+  {task:5, stage:'完成', counts:[1,1,1,1,1,1,1,1,1,2,2,1], info:'5 个任务, 仅增加 2 个 Adapter (+17% 参数). 子线性!', cls:'good'},
+];
+
+function renderDemo(step) {
+  const area = document.getElementById('demo-area');
+  if (!area) return;
+  const s = demoSteps[Math.min(step, demoSteps.length-1)];
+  area.innerHTML = '';
+  area.appendChild(E('div', {style:{display:'flex',alignItems:'center',gap:'0.75rem',marginBottom:'0.5rem'}},
+    E('span', {cls:`badge ${s.cls==='good'?'green':s.cls==='warn'?'red':'blue'}`}, `Step ${step+1}/${demoSteps.length}`),
+    E('strong', {style:{fontSize:'0.95rem'}}, `Task ${s.task}: ${s.stage}`),
+  ));
+  area.appendChild(E('p', {style:{fontSize:'0.78rem',color:'var(--text2)',marginBottom:'0.8rem'}}, s.info));
+  area.appendChild(vitDiagram({counts:s.counts, dStart:9, dEnd:11, highlight:s.highlight, zs:s.zs}));
+  const pct = ((step+1)/demoSteps.length*100).toFixed(0);
+  const progBar = document.getElementById('demo-prog');
+  if (progBar) progBar.style.width = pct+'%';
+}
+
+function runDemo() {
+  clr();
+  let step = 0;
+  renderDemo(step);
+  function next() {
+    step++;
+    if (step < demoSteps.length) {
+      renderDemo(step);
+      timers.push(setTimeout(next, 2500));
+    } else {
+      const area = document.getElementById('demo-area');
+      if (area) area.appendChild(callout('good',
+        '<b>🎉 5 个任务完成!</b> 仅新增 2 个 Adapter (L9, L10)。参数增长 +17% vs 线性增长 +42%。<br>'
+        + '<b>零遗忘</b>: 旧 Adapter 被冻结, 旧任务性能不变。<br>'
+        + '<b>知识复用</b>: Task 3/4 未触发扩展, 软路由自动调整已有 Adapter 的激活权重。'));
+    }
+  }
+  timers.push(setTimeout(next, 2500));
+}
+
+function scene9() {
+  return [
+    E('div', {cls:'card'},
+      E('h2', {}, '📊 10. 方法对比总结'),
+      E('table', {cls:'simple-table'},
+        E('tr', {}, E('th', {}, '方法'), E('th', {}, '防遗忘'), E('th', {}, '参数增长'), E('th', {}, '需回放'), E('th', {}, '需 Task ID')),
+        ...['SEMA|冻结 Adapter + 软路由|子线性|否|否',
+            'L2P|冻结 Prompt Pool|线性 (每任务)|否|训练时需要',
+            'DualPrompt|G/E Prompt 冻结|线性|否|训练时需要',
+            'iCaRL|KD + 回放|固定|是|否',
+            'Finetune|无|固定|否|否',
+            'SimpleCIL|冻结全部|固定|否|否',
+        ].map(r => {
+          const [n,f,g,p,t] = r.split('|');
+          return E('tr', {},
+            E('td', {style:{fontWeight:700,color:n==='SEMA'?'var(--accent)':'var(--text)'}}, n),
+            E('td', {}, f),
+            E('td', {style:{color:g.includes('子线性')?'var(--green)':g.includes('固定')?'var(--dim)':'var(--yellow)'}}, g),
+            E('td', {}, p),
+            E('td', {}, t),
+          );
+        }),
+      ),
+    ),
+    E('div', {cls:'card'},
+      E('h2', {}, '🔑 SEMA 的核心优势'),
+      E('div', {cls:'cols'},
+        E('div', {},
+          E('h3', {}, '1. 子线性参数增长'),
+          E('p', {style:{fontSize:'0.78rem',color:'var(--text2)'}}, '不是每个任务都触发扩展。相似任务共享 Adapter，参数增长远慢于任务数。'),
+          E('h3', {}, '2. 零遗忘 (物理保证)'),
+          E('p', {style:{fontSize:'0.78rem',color:'var(--text2)'}}, '旧 Adapter 被冻结 (requires_grad=False, _grad=None)。梯度不会流经它们 — 不是"减少"遗忘，是"消除"遗忘。'),
+          E('h3', {}, '3. 无回放 (隐私友好)'),
+          E('p', {style:{fontSize:'0.78rem',color:'var(--text2)'}}, '不需要存储旧数据样本，适合医疗、金融等隐私敏感场景。'),
+        ),
+        E('div', {},
+          E('h3', {}, '4. 推理不依赖 Task ID'),
+          E('p', {style:{fontSize:'0.78rem',color:'var(--text2)'}}, 'Router 根据输入特征动态计算软权重，推理时不需要知道样本来自哪个任务。'),
+          E('h3', {}, '5. 跨任务知识复用'),
+          E('p', {style:{fontSize:'0.78rem',color:'var(--text2)'}}, '软路由允许新任务部分激活旧 Adapter。如果新旧任务相似，旧 Adapter 被重用，新 Adapter 只需学习差异部分。'),
+          E('h3', {}, '6. 自动化 (无需手动配置)'),
+          E('p', {style:{fontSize:'0.78rem',color:'var(--text2)'}}, '扩展决策完全自动 (Z-score > 阈值)。不需要预设 Adapter 数量，不需要任务边界标注。'),
+        ),
+      ),
+    ),
+  ];
+}
+
+// ── Router ──
+const scenes = [scene0,scene1,scene2,scene3,scene4,scene5,scene6,scene7,scene8,scene9];
+
+function render(n) {
+  cur = n;
+  clr();
+  const main = document.getElementById('main');
+  main.innerHTML = '';
+  const cards = scenes[n]();
+  cards.forEach((c,i) => { c.classList.add('anim-in'); c.style.animationDelay = `${i*0.1}s`; main.appendChild(c); });
+  document.querySelectorAll('#nav button').forEach((b,i) => b.classList.toggle('sel', i===n));
+  main.scrollIntoView({behavior:'smooth',block:'start'});
+  if (n===8) renderDemo(0);
+}
+
+document.querySelectorAll('#nav button').forEach((btn,i) => {
+  btn.addEventListener('click', () => render(i));
+});
+
+// Init
+render(0);
+
+// Keyboard
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight' && cur < scenes.length-1) render(cur+1);
+  else if (e.key === 'ArrowLeft' && cur > 0) render(cur-1);
+});
+</script>
+</body>
+</html>

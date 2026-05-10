@@ -184,6 +184,10 @@ def _train_single(args):
         tags=wandb_cfg.get("tags", []),
         resume_id=wandb_run_id,
     )
+    # 类增量曲线: X轴 = 累计类别数, Y轴 = 精度/遗忘率
+    wandb_logger.define_metric("eval/total_classes")
+    wandb_logger.define_metric("eval/*", step_metric="eval/total_classes")
+    wandb_logger.define_metric("loss/*", step_metric=None)  # loss 用默认 step
     model.set_wandb_logger(wandb_logger)
 
     # ---- 训练循环 ----
@@ -224,14 +228,18 @@ def _train_single(args):
         logging.info("Forgetting: {:.2f}".format(forgetting))
         logging.info("Average Accuracy: {:.2f}".format(avg_acc))
 
+        # 累计已见类别数 (类增量曲线的 X 轴)
+        cumulative_classes = model._total_classes
+
         # wandb 上报（论文风格）
         wandb_metrics = {
-            "eval/acc_avg": avg_acc,
-            "eval/acc_old": acc_old,
-            "eval/acc_new": acc_new,
-            "eval/cnn_top1": cnn_accy["top1"],
-            "eval/cnn_top5": cnn_accy["top5"],
-            "eval/forgetting": forgetting,
+            "eval/total_classes": cumulative_classes,  # X 轴: 累计类别数
+            "eval/acc_avg": avg_acc,                   # 平均精度
+            "eval/acc_current": cnn_accy["top1"],       # 当前精度
+            "eval/acc_old": acc_old,                   # 旧类精度
+            "eval/acc_new": acc_new,                   # 新类精度
+            "eval/cnn_top5": cnn_accy["top5"],         # Top-5 精度
+            "eval/forgetting": forgetting,              # 遗忘率
             "expansion/total_params": total_params,
             "expansion/trainable_params": trainable_params,
             "expansion/param_ratio": trainable_params / total_params if total_params > 0 else 0,
