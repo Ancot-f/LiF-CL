@@ -269,7 +269,45 @@ body {
 .progress-bar { height: 3px; background: var(--border); border-radius: 2px; margin: 1rem 0; }
 .progress-fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width 0.5s; }
 
+/* Scroll scene */
+.scroll-view { max-width: 1000px; margin: 0 auto; }
+.scroll-section {
+  border-left: 3px solid var(--border2); margin: 0 0 0 24px;
+  padding: 0 0 2rem 2rem; position: relative;
+}
+.scroll-section::before {
+  content: ''; position: absolute; left: -11px; top: 0;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: var(--panel); border: 3px solid var(--accent);
+}
+.scroll-section h3 { margin: 0 0 0.5rem; color: var(--accent); }
+.scroll-section .subtitle { font-size: 0.82rem; color: var(--dim); margin-bottom: 0.8rem; }
+.comp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0.8rem; margin: 0.5rem 0; }
+.comp-card {
+  background: var(--panel2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 1rem;
+}
+.comp-card h4 { font-size: 0.95rem; margin-bottom: 0.3rem; }
+.comp-card .role { color: var(--dim); font-size: 0.72rem; margin-bottom: 0.5rem; }
+.comp-card .content { font-size: 0.82rem; color: var(--text2); line-height: 1.7; }
+.comp-card .content b { color: var(--text); }
+.flow-connector {
+  display: flex; align-items: center; justify-content: center;
+  padding: 0.5rem 0; color: var(--accent); font-size: 1.5rem;
+}
+.arrow-row { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; justify-content: center; padding: 0.5rem; font-size: 0.75rem; }
+.arrow-row .node {
+  padding: 5px 10px; border-radius: 6px; text-align: center;
+  font-family: 'JetBrains Mono', monospace; font-size: 0.7rem;
+}
+.arrow-row .n-blue { border: 1px solid var(--accent); background: rgba(56,189,248,0.08); }
+.arrow-row .n-green { border: 1px solid var(--green); background: rgba(34,197,94,0.08); }
+.arrow-row .n-orange { border: 1px solid var(--orange); background: rgba(249,115,22,0.08); }
+.arrow-row .n-purple { border: 1px solid var(--purple); background: rgba(167,139,250,0.08); }
+.arrow-row .arr { color: var(--dim); font-weight: 700; }
+
 /* Two-col */
+
 .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
 @media (max-width: 768px) { .cols { grid-template-columns: 1fr; } }
 
@@ -348,6 +386,7 @@ body {
   <button data-to="7">8. 软路由组合</button>
   <button data-to="8">9. 多任务演示</button>
   <button data-to="9">10. 总结对比</button>
+  <button data-to="10">11. 全流程长卷轴</button>
 </nav>
 
 <div class="main" id="main"></div>
@@ -361,7 +400,11 @@ function clr() { timers.forEach(clearTimeout); timers = []; }
 
 // ── Helpers ──
 function E(tag, attrs={}, ...kids) {
-  const el = document.createElement(tag);
+  const svgTags = ['svg','rect','text','line','g','defs','linearGradient','stop','marker','polygon','circle','path','ellipse','tspan'];
+  const isSvg = svgTags.includes(tag);
+  const el = isSvg
+    ? document.createElementNS('http://www.w3.org/2000/svg', tag)
+    : document.createElement(tag);
   for (const [k,v] of Object.entries(attrs)) {
     if (k === 'style' && typeof v === 'object') Object.assign(el.style, v);
     else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
@@ -913,7 +956,385 @@ function scene9() {
 }
 
 // ── Router ──
-const scenes = [scene0,scene1,scene2,scene3,scene4,scene5,scene6,scene7,scene8,scene9];
+function scene10() {
+  const S = (title, subtitle, ...children) =>
+    E('div', {cls:'scroll-section anim-in'},
+      E('h3', {}, title),
+      subtitle ? E('div', {cls:'subtitle'}, subtitle) : null,
+      ...children,
+    );
+
+  return [
+    E('div', {cls:'card scroll-view'},
+      E('h2', {}, '🗺️ SEMA 全流程长卷轴 — 组件连接 + 训练流程 + 详细注释'),
+
+      // ═══ 1. 输入 ═══
+      S('1. 输入: 图像批次', '每张图 224×224, 切为 14×14=196 patches + 1 CLS token',
+        E('div', {cls:'arrow-row'},
+          E('span', {cls:'node n-blue'}, 'images\n[B,3,224,224]'),
+          E('span', {cls:'arr'}, '→'),
+          E('span', {cls:'node n-blue'}, 'PatchEmbed\nConv 16×16'),
+          E('span', {cls:'arr'}, '→'),
+          E('span', {cls:'node n-blue'}, 'tokens\n[B,197,768]'),
+        ),
+      ),
+
+      // ═══ 2. ViT Blocks ═══
+      S('2. ViT backbone: 12 个 Block, 每个嵌入 SEMAModules',
+        'L0-L8 为标准层(不检测), L9-L11 为检测层(可触发扩展)。红色虚线框 = 当前含多个 Adapter 的层。',
+        vitDiagram({counts:[1,1,1,1,1,1,1,1,1,4,2,3], dStart:9, dEnd:11}),
+      ),
+
+      // ═══ 3. Adapter ═══
+      S('3. Adapter (功能适配器) — 每层 1~M 个',
+        '结构: 瓶颈 MLP。up_proj 零初始化保证初始输出为 0, 不破坏预训练特征。',
+        E('div', {cls:'arrow-row'},
+          E('span', {cls:'node n-orange'}, 'x\n[B,N,768]'),
+          E('span', {cls:'arr'}, '→'),
+          E('span', {cls:'node n-orange'}, 'LayerNorm\n(可选)'),
+          E('span', {cls:'arr'}, '→'),
+          E('span', {cls:'node n-orange'}, 'down_proj\n768→16'),
+          E('span', {cls:'arr'}, '→'),
+          E('span', {cls:'node n-orange'}, 'ReLU'),
+          E('span', {cls:'arr'}, '→'),
+          E('span', {cls:'node n-orange'}, 'up_proj\n16→768'),
+          E('span', {cls:'arr'}, '→'),
+          E('span', {cls:'node n-orange'}, 'output×scalar'),
+        ),
+        E('div', {cls:'comp-grid', style:{marginTop:'0.8rem'}},
+          E('div', {cls:'comp-card'},
+            E('h4', {style:{color:'var(--orange)'}}, 'down_proj: Linear(768→16)'),
+            E('div', {cls:'role'}, '降维投影'),
+            E('div', {cls:'content'}, '将 768 维特征<b>压缩到 16 维瓶颈</b>。权重用 <b>Kaiming Uniform</b> 初始化保证梯度流动。这是 Adapter 的"压缩"侧。'),
+          ),
+          E('div', {cls:'comp-card'},
+            E('h4', {style:{color:'var(--orange)'}}, 'up_proj: Linear(16→768)'),
+            E('div', {cls:'role'}, '升维投影'),
+            E('div', {cls:'content'}, '将 16 维瓶颈<b>映射回 768 维</b>。权重<b>全零初始化</b>(LoRA 风格), 初始时 Adapter 输出为零, 不影响预训练 ViT 的特征。'),
+          ),
+          E('div', {cls:'comp-card'},
+            E('h4', {style:{color:'var(--orange)'}}, 'scalar: 输出缩放因子'),
+            E('div', {cls:'role'}, '学习率调节器'),
+            E('div', {cls:'content'}, '固定值 <b>0.1</b> 或可学习参数。配合 up_proj 的零初始化, 让 Adapter 从<b>"什么都不做"</b>平滑过渡到<b>"学习任务特定变换"</b>。'),
+          ),
+          E('div', {cls:'comp-card'},
+            E('h4', {style:{color:'var(--orange)'}}, '参数量'),
+            E('div', {cls:'role'}, '≈ 24K / Adapter'),
+            E('div', {cls:'content'}, '2 × 768 × 16 = <b>24,576</b> 参数, 仅占 ViT 主干 86M 的 <b>0.03%</b>。12 层共 295K 参数。即使扩展到 4 个 Adapter/层也仅 ~1M。'),
+          ),
+        ),
+      ),
+
+      // ═══ 4. AE ═══
+      S('4. AE (表征描述器) — 每个 Adapter 配一个, 仅检测层(L9-L11)',
+        '线性自编码器: encoder(768→128) + decoder(128→768)。等价于秩-128 PCA, 学当前任务特征的 128 个主成分方向。',
+        E('div', {cls:'arrow-row'},
+          E('span', {cls:'node n-green'}, 'x̄ = mean(x)\n[B,768]'),
+          E('span', {cls:'arr'}, '→'),
+          E('span', {cls:'node n-green'}, 'encoder\n768→128'),
+          E('span', {cls:'arr'}, '→'),
+          E('span', {cls:'node n-green'}, 'z\n[B,128]'),
+          E('span', {cls:'arr'}, '→'),
+          E('span', {cls:'node n-green'}, 'decoder\n128→768'),
+          E('span', {cls:'arr'}, '→'),
+          E('span', {cls:'node n-green'}, 'x̂\n[B,768]'),
+          E('span', {cls:'arr'}, '→'),
+          E('span', {cls:'node n-orange'}, 'MSE(x̂ᵢ,xᵢ)\n逐样本'),
+          E('span', {cls:'arr'}, '→'),
+          E('span', {cls:'node n-blue'}, 'Records\n统计 μ,σ'),
+          E('span', {cls:'arr'}, '→'),
+          E('span', {cls:'node n-purple'}, 'Z-score\n|x-μ|/σ'),
+        ),
+        E('div', {cls:'comp-grid', style:{marginTop:'0.8rem'}},
+          E('div', {cls:'comp-card'},
+            E('h4', {style:{color:'var(--green)'}}, '角色 1: 记录员 (rd 阶段)'),
+            E('div', {cls:'role'}, 'MSE 损失训练, 20 epochs'),
+            E('div', {cls:'content'}, 'rd 阶段<b>只训练 AE</b>, 冻结所有其他参数。目标是 min Σ||x̂ - x||²。训练后 AE 学会重建当前任务的特征分布。'),
+          ),
+          E('div', {cls:'comp-card'},
+            E('h4', {style:{color:'var(--green)'}}, '角色 2: 检测器 (Task > 0)'),
+            E('div', {cls:'role'}, '重建误差 → Z-score'),
+            E('div', {cls:'content'}, '新任务数据送入旧 AE: 同分布 → 低 MSE → 低 Z-score。不同分布 → 高 MSE → 高 Z-score。非线性的激活函数会误报, 线性 AE <b>等价 PCA</b>, 判断更可靠。'),
+          ),
+          E('div', {cls:'comp-card'},
+            E('h4', {style:{color:'var(--green)'}}, '角色 3: 投票者 (扩展决策)'),
+            E('div', {cls:'role'}, '共识机制: 所有 AE 一致认为异常才触发'),
+            E('div', {cls:'content'}, 'min(Z₁, ..., Zₘ) > 2.0 → 所有 AE 都认为异常 → 触发扩展。只要有 1 个 AE 觉得正常 → 不扩展。这是<b>多重检验</b>, 降低误触发率。'),
+          ),
+          E('div', {cls:'comp-card'},
+            E('h4', {style:{color:'var(--green)'}}, '为什么是线性的'),
+            E('div', {cls:'role'}, '≡ PCA, 数学可解释'),
+            E('div', {cls:'content'}, '线性 AE 全局最优解 ↔ X 的前 128 个左奇异向量。重建误差直接反映"数据是否在历史子空间内"。非线性 AE 的重建误差<b>不可靠</b>(饱和区会误报)。'),
+          ),
+        ),
+      ),
+
+      // ═══ 5. Router ═══
+      S('5. Router (软路由器) — 每层 1 个, 管理该层所有 Adapter 的组合',
+        'Linear(768→M), M = 当前 Adapter 数量。输入 token 均值, 输出 softmax 权重。',
+        E('div', {cls:'arrow-row'},
+          E('span', {cls:'node n-purple'}, 'x̄ = mean(x)\n[B,768]'),
+          E('span', {cls:'arr'}, '→'),
+          E('span', {cls:'node n-purple'}, 'Router\nLinear(768→M)'),
+          E('span', {cls:'arr'}, '→'),
+          E('span', {cls:'node n-purple'}, 'logits\n[B,M]'),
+          E('span', {cls:'arr'}, '→'),
+          E('span', {cls:'node n-purple'}, 'softmax'),
+          E('span', {cls:'arr'}, '→'),
+          E('span', {cls:'node n-purple'}, 'α₁..αₘ\n[B,M]'),
+          E('span', {cls:'arr'}, '→'),
+          E('span', {cls:'node n-orange'}, 'Σ αᵢ·Adᵢ(x)'),
+        ),
+        E('div', {cls:'comp-grid', style:{marginTop:'0.8rem'}},
+          E('div', {cls:'comp-card'},
+            E('h4', {style:{color:'var(--purple)'}}, '功能 1: 加权组合'),
+            E('div', {cls:'role'}, 'output = Σᵢ softmax(Router(x̄))ᵢ · Adapterᵢ(x)'),
+            E('div', {cls:'content'}, 'Router 输出 <b>softmax 归一化的权重</b>。用 token 均值而非全 token (计算从 O(B·N·M·d) 降到 O(B·M·d))。所有 Adapter 都参与, 只是权重不同。'),
+          ),
+          E('div', {cls:'comp-card'},
+            E('h4', {style:{color:'var(--purple)'}}, '功能 2: 解耦 task ID'),
+            E('div', {cls:'role'}, '推理时不需要知道任务编号'),
+            E('div', {cls:'content'}, '传统方法 if task_id==N: use Adapter_N。SEMA 的 Router <b>根据数据自动决定</b>激活哪些 Adapter。解决了 CL 的核心痛点: 推理时通常不知道 task ID。'),
+          ),
+          E('div', {cls:'comp-card'},
+            E('h4', {style:{color:'var(--purple)'}}, '功能 3: 平滑扩展 (fix_router)'),
+            E('div', {cls:'role'}, 'new_router 从 0 开始, 训练后合并'),
+            E('div', {cls:'content'}, '加新 Adapter 时创建 <b>new_router(初始权重=0)</b>, forward 时拼接到 logits。训练后 <b>fix_router()</b> 将 new_router 合并入 Router。旧权重保留, 新权重从训练中获得。'),
+          ),
+          E('div', {cls:'comp-card'},
+            E('h4', {style:{color:'var(--purple)'}}, 'vs 硬选择'),
+            E('div', {cls:'role'}, '软路由的核心优势'),
+            E('div', {cls:'content'}, '硬选择: adapter[task_id], 选错全错, 无复用。软路由: <b>动态加权</b>, 旧 Adapter 可被部分激活(跨任务复用), 新 Adapter 平滑融入, 不需要 task ID。'),
+          ),
+        ),
+      ),
+
+      // ═══ 6. Task 0 ═══
+      S('6. Task 0 训练流程',
+        '第一个任务: 初始化 1 Adapter/层, 两阶段训练, 冻结。',
+        E('div', {cls:'arrow-row', style:{flexDirection:'column',gap:'0.3rem'}},
+          E('div', {cls:'arrow-row'},
+            E('span', {cls:'node n-blue'}, 'init\nViT+1Ad/层'), E('span', {cls:'arr'}, '→'),
+            E('span', {cls:'node n-orange'}, 'func 阶段\nCE loss · 5ep'), E('span', {cls:'arr'}, '→'),
+            E('span', {cls:'node n-green'}, 'rd 阶段\nMSE loss · 20ep'), E('span', {cls:'arr'}, '→'),
+            E('span', {cls:'node n-purple'}, 'freeze\n冻结全部'),
+          ),
+          E('div', {style:{fontSize:'0.72rem',color:'var(--dim)',textAlign:'center',marginTop:'0.3rem'}},
+            '优化: functional + router + fc (func) | 仅 AE encoder+decoder (rd) | 冻结后: 所有参数 requires_grad=False'),
+        ),
+      ),
+
+      // ═══ 7. Task > 0 ═══
+      S('7. Task > 0 训练流程',
+        '后续任务: 扩展检测 → 可能触发扩展 → 冻结新增。',
+        E('div', {cls:'arrow-row', style:{flexDirection:'column',gap:'0.3rem'}},
+          E('div', {cls:'arrow-row'},
+            E('span', {cls:'node n-purple'}, 'detecting\noutlier=True'), E('span', {cls:'arr'}, '→'),
+            E('span', {cls:'node n-green'}, '所有旧AE\n计算Z-score'), E('span', {cls:'arr'}, '→'),
+            E('span', {cls:'node n-orange'}, 'min(Z)>2 ?'),
+          ),
+          E('div', {cls:'arrow-row'},
+            E('span', {cls:'node n-orange', style:{borderColor:'var(--green)',background:'rgba(34,197,94,0.1)'}}, '是 → add_adapter()'),
+            E('span', {style:{color:'var(--dim)',margin:'0 1rem'}}, '|'),
+            E('span', {cls:'node', style:{border:'1px solid var(--dim)',background:'rgba(100,116,139,0.08)'}}, '否 → 只微调Router'),
+          ),
+          E('div', {style:{fontSize:'0.72rem',color:'var(--dim)',textAlign:'center',marginTop:'0.3rem'}},
+            '扩展后: func 训练新 Adapter + new_router + fc → rd 训练新 AE → freeze 新组件 → fix_router 合并路由列'),
+        ),
+      ),
+
+      // ═══ 8. 完整 Block 内部数据流 (SVG 精绘图) ═══
+      S('8. 单层 Block 内部数据流 — 两条路径并行, 最后合并',
+        '以 parallel 模式的一个检测层 (L9) 为例。标注了每条边的张量形状和每个组件的作用。',
+        E('div', {style:{overflowX:'auto',padding:'0.5rem 0'}},
+          E('svg', {
+            viewBox:'0 0 1100 1420', width:'100%',
+            style:{maxWidth:'1100px',minWidth:'800px',display:'block',margin:'0 auto'}
+          },
+            // ═══ 背景 ═══
+            E('defs', {},
+              E('marker', {id:'arrowBlue', markerWidth:8, markerHeight:6, refX:8, refY:3, orient:'auto'},
+                E('polygon', {points:'0 0, 8 3, 0 6', fill:'#38bdf8'})),
+              E('marker', {id:'arrowOrange', markerWidth:8, markerHeight:6, refX:8, refY:3, orient:'auto'},
+                E('polygon', {points:'0 0, 8 3, 0 6', fill:'#f97316'})),
+              E('marker', {id:'arrowGreen', markerWidth:8, markerHeight:6, refX:8, refY:3, orient:'auto'},
+                E('polygon', {points:'0 0, 8 3, 0 6', fill:'#22c55e'})),
+              E('marker', {id:'arrowPurple', markerWidth:8, markerHeight:6, refX:8, refY:3, orient:'auto'},
+                E('polygon', {points:'0 0, 8 3, 0 6', fill:'#a78bfa'})),
+              E('marker', {id:'arrowDim', markerWidth:8, markerHeight:6, refX:8, refY:3, orient:'auto'},
+                E('polygon', {points:'0 0, 8 3, 0 6', fill:'#556580'})),
+              E('linearGradient', {id:'gBlue', x1:0,y1:0,x2:1,y2:1},
+                E('stop', {offset:'0%',stopColor:'rgba(56,189,248,0.12)'}),
+                E('stop', {offset:'100%',stopColor:'rgba(56,189,248,0.04)'})),
+              E('linearGradient', {id:'gOrange', x1:0,y1:0,x2:1,y2:1},
+                E('stop', {offset:'0%',stopColor:'rgba(249,115,22,0.12)'}),
+                E('stop', {offset:'100%',stopColor:'rgba(249,115,22,0.04)'})),
+              E('linearGradient', {id:'gPurple', x1:0,y1:0,x2:1,y2:1},
+                E('stop', {offset:'0%',stopColor:'rgba(167,139,250,0.12)'}),
+                E('stop', {offset:'100%',stopColor:'rgba(167,139,250,0.04)'})),
+            ),
+
+            // ── Helper: rounded rect ──
+            ...[
+              // ═══════════════ 1. INPUT ═══════════════
+              {x:420,y:10,w:260,h:36, fill:'var(--panel2)', stroke:'#38bdf8', rx:6, label:'输入 x  [B, 197, 768]', labelColor:'#e2e8f0'},
+              // arrow down
+              {line:{x1:550,y1:46,x2:550,y2:75}, stroke:'#556580'},
+              // LN + Attn
+              {x:420,y:78,w:260,h:34, fill:'var(--panel2)', stroke:'#556580', rx:6, label:'LayerNorm', labelColor:'#8fa0bc'},
+              {line:{x1:550,y1:112,x2:550,y2:145}, stroke:'#556580'},
+              {x:400,y:148,w:300,h:40, fill:'var(--panel2)', stroke:'#556580', rx:6, label:'Attention  Q/K/V→12heads→softmax→proj', labelColor:'#e2e8f0'},
+              {line:{x1:550,y1:188,x2:550,y2:220}, stroke:'#556580'},
+              {x:420,y:223,w:260,h:34, fill:'var(--panel2)', stroke:'#556580', rx:6, label:'+ DropPath', labelColor:'#8fa0bc'},
+              // x1 output label
+              {line:{x1:550,y1:257,x2:550,y2:290}, stroke:'#556580'},
+              // BIG x1 box
+              {x:400,y:293,w:300,h:44, fill:'rgba(56,189,248,0.1)', stroke:'#38bdf8', rx:8, strokeWidth:2, label:'x₁ = x + Attn(LN(x))', labelColor:'#38bdf8', labelSize:'13px', sub:'第一个残差连接  [B,197,768]', subColor:'#8fa0bc'},
+
+              // ═══════════════ SPLIT ═══════════════
+              // Left arrow
+              {line:{x1:470,y1:337,x2:260,y2:390}, stroke:'#556580', dash:'6,4'},
+              // Right arrow
+              {line:{x1:630,y1:337,x2:840,y2:390}, stroke:'#556580', dash:'6,4'},
+              // Split annotation
+              {text:{x:500,y:375, content:'x₁ 同时进入两条并行路径', fill:'#556580', size:'10px'}},
+
+              // ═══════════════ LEFT: ViT MLP ═══════════════
+              // MLP box
+              {x:60,y:400,w:400,h:420, fill:'none', stroke:'#334155', rx:10, dash:'6,3'},
+              {text:{x:260,y:425, content:'ViT 标准 MLP 路径', fill:'#8fa0bc', size:'12px', anchor:'middle'}},
+              // Components
+              {x:110,y:445,w:300,h:34, fill:'var(--panel2)', stroke:'#556580', rx:6, label:'LayerNorm', labelColor:'#8fa0bc'},
+              {line:{x1:260,y1:479,x2:260,y2:510}, stroke:'#556580'},
+              {x:90,y:513,w:340,h:34, fill:'rgba(249,115,22,0.08)', stroke:'#f97316', rx:6, label:'fc1: Linear(768→3072)', labelColor:'#f97316'},
+              {line:{x1:260,y1:547,x2:260,y2:578}, stroke:'#556580'},
+              {x:150,y:581,w:220,h:30, fill:'var(--panel2)', stroke:'#556580', rx:6, label:'GELU 激活', labelColor:'#8fa0bc'},
+              {line:{x1:260,y1:611,x2:260,y2:642}, stroke:'#556580'},
+              {x:90,y:645,w:340,h:34, fill:'rgba(249,115,22,0.08)', stroke:'#f97316', rx:6, label:'fc2: Linear(3072→768)', labelColor:'#f97316'},
+              {line:{x1:260,y1:679,x2:260,y2:710}, stroke:'#556580'},
+              {x:150,y:713,w:220,h:30, fill:'var(--panel2)', stroke:'#556580', rx:6, label:'Dropout', labelColor:'#8fa0bc'},
+              {line:{x1:260,y1:743,x2:260,y2:770}, stroke:'#556580'},
+              {x:90,y:773,w:340,h:38, fill:'rgba(249,115,22,0.1)', stroke:'#f97316', rx:6, strokeWidth:2, label:'MLP_out  [B,197,768]', labelColor:'#f97316', labelSize:'12px'},
+              // annotation
+              {text:{x:260,y:395, content:'冻结的预训练权重 (不训练)', fill:'#556580', size:'10px', anchor:'middle'}},
+
+              // ═══════════════ RIGHT: SEMAModules ═══════════════
+              {x:700,y:400,w:380,h:800, fill:'none', stroke:'#334155', rx:10, dash:'6,3'},
+              {text:{x:890,y:425, content:'SEMAModules (可训练)', fill:'#a78bfa', size:'12px', anchor:'middle'}},
+              // Adapter boxes
+              {text:{x:890,y:455, content:'M 个 Adapter (并行, 共享权重对每个 token 独立计算)', fill:'#8fa0bc', size:'10px', anchor:'middle'}},
+              ...[0,1,2].map(i => {
+                const yy = 478 + i*70;
+                const labels = i===0 ? ['Adapter₀  [B,197,768]→', 'down(768→16) → ReLU → up(16→768)', 'f₀ [B,197,768]'] :
+                               i===1 ? ['Adapter₁  ...', '同结构, 不同权重', 'f₁'] :
+                                       ['Adapterₘ₋₁  ...', '同结构, 不同权重', 'fₘ₋₁'];
+                return [
+                  {x:720,y:yy,w:340,h:30, fill: i===0?'rgba(249,115,22,0.08)':'rgba(249,115,22,0.04)', stroke:'#f97316', rx:4, label:labels[0], labelColor:'#f97316'},
+                  {text:{x:890,y:yy+20, content:labels[1], fill:'#556580', size:'9px', anchor:'middle'}},
+                  {text:{x:890,y:yy+42, content:labels[2], fill:'#8fa0bc', size:'10px', anchor:'middle'}},
+                ];
+              }).flat(),
+              // stack arrow
+              {text:{x:890,y:692, content:'↓  torch.stack → [M, B, 197, 768]', fill:'#8fa0bc', size:'10px', anchor:'middle'}},
+
+              // Router
+              {x:720,y:718,w:340,h:30, fill:'rgba(167,139,250,0.08)', stroke:'#a78bfa', rx:6, label:'Router(x₁.mean(dim=1))  Linear(768→M)', labelColor:'#a78bfa'},
+              {line:{x1:890,y1:748,x2:890,y2:772}, stroke:'#a78bfa'},
+              {x:720,y:775,w:340,h:30, fill:'rgba(167,139,250,0.06)', stroke:'#a78bfa', rx:6, label:'softmax → α = [B, M]', labelColor:'#a78bfa'},
+              {line:{x1:890,y1:805,x2:890,y2:830}, stroke:'#a78bfa'},
+              {x:720,y:833,w:340,h:44, fill:'rgba(167,139,250,0.1)', stroke:'#a78bfa', rx:6, strokeWidth:2, label:'func_out = Σᵢ αᵢ · fᵢ', labelColor:'#a78bfa', labelSize:'13px', sub:'adapt_x  [B,197,768]', subColor:'#8fa0bc'},
+
+              // AE side
+              {text:{x:890,y:900, content:'仅检测层 (L9-L11): AE 同时计算 rd_loss', fill:'#22c55e', size:'10px', anchor:'middle'}},
+              {x:720,y:915,w:340,h:30, fill:'rgba(34,197,94,0.06)', stroke:'#22c55e', rx:6, label:'AE( x₁.mean(dim=1) ) → x̂ → MSE(x̂,x̄)', labelColor:'#22c55e'},
+              {line:{x1:890,y1:945,x2:890,y2:968}, stroke:'#22c55e'},
+              {x:720,y:970,w:340,h:48, fill:'rgba(34,197,94,0.1)', stroke:'#22c55e', rx:6, strokeWidth:2, label:'rd_loss = 逐样本MSE → Z-score → added', labelColor:'#22c55e', labelSize:'11px', sub:'Z-score > 2.0 且所有AE一致 → 触发扩展', subColor:'#8fa0bc'},
+
+              // ═══════════════ MERGE ═══════════════
+              // Left arrow from MLP_out
+              {line:{x1:260,y1:820,x2:260,y2:1060}, stroke:'#f97316', dash:'6,4'},
+              // Right arrow from adapt_x
+              {line:{x1:890,y1:885,x2:890,y2:1060}, stroke:'#a78bfa', dash:'6,4'},
+              // Merge point
+              {x:360,y:1055,w:380,h:50, fill:'rgba(56,189,248,0.1)', stroke:'#38bdf8', rx:8, strokeWidth:2, label:'x₂ = MLP_out + adapt_x   (并行加法)', labelColor:'#38bdf8', labelSize:'13px', sub:'两条路径的输出直接相加  [B,197,768]', subColor:'#8fa0bc'},
+              // Arrow from x1 to merge
+              {line:{x1:550,y1:337,x2:550,y2:1030}, stroke:'#38bdf8', dash:'8,4'},
+              // Residual connection label
+              {text:{x:560,y:700, content:'残差连接 (x₁ 直传)', fill:'#38bdf8', size:'10px'} },
+              // DropPath after x2
+              {line:{x1:550,y1:1105,x2:550,y2:1138}, stroke:'#556580'},
+              {x:420,y:1141,w:260,h:30, fill:'var(--panel2)', stroke:'#556580', rx:6, label:'+ DropPath', labelColor:'#8fa0bc'},
+              {line:{x1:550,y1:1171,x2:550,y2:1200}, stroke:'#556580'},
+              {x:360,y:1203,w:380,h:50, fill:'rgba(56,189,248,0.12)', stroke:'#38bdf8', rx:8, strokeWidth:2, label:'x₃ = x₁ + DropPath(x₂)', labelColor:'#38bdf8', labelSize:'13px', sub:'第二个残差连接: 残差基是 x₁, 不是原始 x', subColor:'#8fa0bc'},
+
+              // ═══════════════ OUTPUT ═══════════════
+              {line:{x1:550,y1:1253,x2:550,y2:1290}, stroke:'#38bdf8', strokeWidth:2},
+              {x:300,y:1293,w:500,h:65, fill:'rgba(56,189,248,0.15)', stroke:'#38bdf8', rx:10, strokeWidth:3, label:'Block 输出 dict', labelColor:'#38bdf8', labelSize:'14px', sub:'"blk_out": x₃ → 下一层  |  "rd_loss": ... → 累加  |  "added": True/False → 中断信号', subColor:'#e2e8f0'},
+
+              // ═══════════════ Right-side annotations ═══════════════
+              // Adapter annotation
+              {text:{x:1085,y:510, content:'Adapter ≈ 秩-16 修正项', fill:'#f97316', size:'10px', anchor:'start'}},
+              {text:{x:1085,y:528, content:'每 token 独立计算,', fill:'#556580', size:'9px', anchor:'start'}},
+              {text:{x:1085,y:544, content:'CLS token → 影响分类', fill:'#556580', size:'9px', anchor:'start'}},
+              {text:{x:1085,y:560, content:'patch token → 影响下层 Attn', fill:'#556580', size:'9px', anchor:'start'}},
+
+              // Router annotation
+              {text:{x:1085,y:750, content:'Router 不依赖 task ID', fill:'#a78bfa', size:'10px', anchor:'start'}},
+              {text:{x:1085,y:768, content:'用 token 均值 (非全 token)', fill:'#556580', size:'9px', anchor:'start'}},
+              {text:{x:1085,y:784, content:'O(B·M·d) 而非 O(B·N·M·d)', fill:'#556580', size:'9px', anchor:'start'}},
+
+              // MLP annotation
+              {text:{x:0,y:550, content:'MLP 权重冻结', fill:'#8fa0bc', size:'10px', anchor:'start'}},
+              {text:{x:0,y:568, content:'不参与训练', fill:'#556580', size:'9px', anchor:'start'}},
+              {text:{x:0,y:586, content:'仅提供预训练特征', fill:'#556580', size:'9px', anchor:'start'}},
+
+              // Parallel annotation
+              {text:{x:1085,y:1070,content:'MLP 和 Adapter 并行计算', fill:'#38bdf8', size:'10px', anchor:'start'}},
+              {text:{x:1085,y:1088,content:'互不阻塞, 最后相加', fill:'#556580', size:'9px', anchor:'start'}},
+
+              // Residual annotation
+              {text:{x:1085,y:1180,content:'残差: x₁ (Attn后) = 基', fill:'#38bdf8', size:'10px', anchor:'start'}},
+              {text:{x:1085,y:1198,content:'Adapter Δ 既作用当前token', fill:'#556580', size:'9px', anchor:'start'}},
+              {text:{x:1085,y:1214,content:'也通过残差传到下层 Attn', fill:'#556580', size:'9px', anchor:'start'}},
+            ].map(el => {
+              if (el.text) {
+                return E('text', {x:el.x, y:el.y, fill:el.fill, fontSize:el.size, textAnchor:el.anchor||'middle'}, el.content);
+              }
+              if (el.line) {
+                return E('line', {
+                  x1:el.line.x1, y1:el.line.y1, x2:el.line.x2, y2:el.line.y2,
+                  stroke:el.line.stroke, strokeWidth:el.line.strokeWidth||1.5,
+                  strokeDasharray:el.line.dash||'', markerEnd:`url(#arrow${el.line.stroke==='#f97316'?'Orange':el.line.stroke==='#a78bfa'?'Purple':el.line.stroke==='#22c55e'?'Green':el.line.stroke==='#38bdf8'?'Blue':'Dim'})`
+                });
+              }
+              // rect with label
+              const sw = el.strokeWidth || 1;
+              return E('g', {},
+                E('rect', {x:el.x, y:el.y, width:el.w, height:el.h, fill:el.fill, stroke:el.stroke, rx:el.rx||4, strokeWidth:sw, strokeDasharray:el.dash||''}),
+                E('text', {x:el.x+el.w/2, y:el.y+(el.sub?el.h/2-2:el.h/2+5), fill:el.labelColor||'#e2e8f0', fontSize:el.labelSize||'11px', textAnchor:'middle', fontFamily:'JetBrains Mono,monospace', fontWeight:'600'}, el.label),
+                el.sub ? E('text', {x:el.x+el.w/2, y:el.y+el.h/2+14, fill:el.subColor||'#556580', fontSize:'9px', textAnchor:'middle'}, el.sub) : null,
+              );
+            }),
+          ),
+        ),
+      ),
+
+      // ═══ 9. 冻结 ═══
+      S('9. 冻结与隔离 — 零遗忘机制',
+        'end_of_task_training(): freeze_functional + freeze_rd + reset。所有旧 Adapter 物理锁定。',
+        E('table', {cls:'simple-table'},
+          E('tr', {}, E('th', {}, '操作'), E('th', {}, '对象'), E('th', {}, '效果')),
+          E('tr', {}, E('td', {}, 'freeze_functional()'), E('td', {}, '所有 Adapter.functional + Router'), E('td', {}, 'requires_grad=False, _grad=None')),
+          E('tr', {}, E('td', {}, 'freeze_rd()'), E('td', {}, '所有 AE + Records'), E('td', {}, 'AE 参数冻结 + Records.updating=False')),
+          E('tr', {}, E('td', {}, 'fix_router()'), E('td', {}, 'new_router → Router'), E('td', {}, '拼接路由列, 旧权重保留')),
+          E('tr', {}, E('td', {}, 'reset_newly_added()'), E('td', {}, 'newly_added, added_for_task'), E('td', {}, '标志位清除, 允许下轮扩展')),
+        ),
+      ),
+    ),
+  ];
+}
+
+const scenes = [scene0,scene1,scene2,scene3,scene4,scene5,scene6,scene7,scene8,scene9,scene10];
 
 function render(n) {
   cur = n;

@@ -1,0 +1,74 @@
+# ============================================================
+# Lie-SEMA: cifar100_b10inc10
+# ============================================================
+# Lie Group Fiber Bundle SEMA — Stiefel 流形约束 + 测地线扩展检测
+#
+# 将 Adapter.down_proj 约束到 Stiefel 流形 St(768,16) 上,
+# 用测地线距离 d_geo(W_new, W_old) > geo_threshold 判断扩展.
+#
+# Stiefel 流形: St(d,r) = { W ∈ R^{d×r} | W^T W = I_r }
+#   - 齐性空间: St(768,16) ≅ SO(768) / SO(752)
+#   - 测地线距离: d_geo ∈ [0, π·√16/2] ≈ [0, 6.3]
+#   - geo_threshold 控制扩展敏感度
+#
+# 用法: python main.py --config configs/lie_sema/cifar100_b10inc10.yaml
+# ============================================================
+
+prefix: reproduce
+model_name: lie_sema
+
+# ── 数据集 ──
+dataset: cifar100
+init_cls: 10
+increment: 10
+shuffle: true
+
+# ── 主干网络 ──
+backbone_type: pretrained_vit_b16_224_adapter
+
+# ── 硬件 ──
+device: auto
+seed: [1993]
+batch_size: 32
+
+# ── 优化器 ──
+optimizer: sgd
+init_lr: 0.005
+rd_lr: 0.01
+weight_decay: 0.0005
+min_lr: 0
+
+# ── 训练阶段 ──
+func_epoch: 5
+rd_epoch: 20
+
+# ── Lie-SEMA Adapter (Stiefel 约束) ──
+ffn_num: 16
+ffn_adapter_type: adaptmlp
+ffn_adapter_init_option: lora
+ffn_adapter_scalar: 0.1
+ffn_adapter_layernorm_option: none
+
+# ── Lie-SEMA 表征描述器 (保留用于 rd 阶段) ──
+rd_dim: 128
+buffer_size: 500
+
+# ── Lie-SEMA 扩展检测 ──
+exp_threshold: 2         # Z-score 阈值 (兼容)
+geo_threshold: 0.5         # 测地线距离阈值 (Stiefel 流形)
+                                 #   推荐: 0.3 (敏感) ~ 0.8 (保守)
+adapt_start_layer: 9
+adapt_end_layer: 11
+detect_batch_size: 128
+
+# ── 其余 ──
+memory_size: 0
+memory_per_class: 0
+fixed_memory: false
+vpt_type: shallow
+prompt_token_num: 5
+
+wandb:
+  mode: disabled
+  project: LiF-CL
+  tags: [lie-sema, cifar100]

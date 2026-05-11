@@ -106,7 +106,43 @@ def get_backbone(args, pretrained=False):
 
     elif '_adapter' in name:
         ffn_num = args["ffn_num"]
-        if args["model_name"] == "sema":
+        if args["model_name"] == "lie_sema":
+            from backbones import lie_sema_vit
+            from easydict import EasyDict
+            tuning_config = EasyDict(
+                # AdaptFormer + Stiefel constraint
+                ffn_adapt=True,
+                ffn_option="parallel",
+                ffn_adapter_layernorm_option="none",
+                ffn_adapter_init_option="lora",
+                ffn_adapter_scalar="0.1",
+                ffn_num=ffn_num,
+                ffn_adapter_type=args["ffn_adapter_type"],
+                d_model=768,
+                attn_bn=ffn_num,
+                # VPT
+                vpt_on=False,
+                vpt_num=0,
+                # Lie-SEMA
+                exp_threshold=args["exp_threshold"],
+                geo_threshold=args.get("geo_threshold", 0.5),
+                adapt_start_layer=args["adapt_start_layer"],
+                adapt_end_layer=args["adapt_end_layer"],
+                rd_dim=args["rd_dim"],
+                buffer_size=args["buffer_size"],
+            )
+            if name == "pretrained_vit_b16_224_adapter":
+                model = lie_sema_vit.lie_sema_vit_base_patch16_224(num_classes=0,
+                    global_pool=False, drop_path_rate=0.0, tuning_config=tuning_config)
+                model.out_dim = 768
+            elif name == "pretrained_vit_b16_224_in21k_adapter":
+                model = lie_sema_vit.lie_sema_vit_base_patch16_224(num_classes=0,
+                    global_pool=False, drop_path_rate=0.0, tuning_config=tuning_config)
+                model.out_dim = 768
+            else:
+                raise NotImplementedError("Unknown type {}".format(name))
+            return model.eval()
+        elif args["model_name"] == "sema":
             from backbones import sema_vit
             from easydict import EasyDict
             tuning_config = EasyDict(
