@@ -47,6 +47,7 @@ class LieAdapterModule(nn.Module):
             config, adapter_id=adapter_id,
             dropout=0.1,
             adapter_scalar=config.ffn_adapter_scalar,
+            adapter_layernorm_option=getattr(config, 'ffn_adapter_layernorm_option', 'none'),
         )
         layer_id = int(adapter_id.split('.')[0])
         self.not_addition_layer = (

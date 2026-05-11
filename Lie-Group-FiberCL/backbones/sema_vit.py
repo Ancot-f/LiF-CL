@@ -318,7 +318,7 @@ def _load_pretrained_weights_safetensors(model, pretrained_path):
         elif 'qkv.bias' in key:
             qkv_bias = state_dict.pop(key)
             q_bias = qkv_bias[:768]
-            k_bias = qkv_bias[768*2:]
+            k_bias = qkv_bias[768:768*2]
             v_bias = qkv_bias[768*2:]
             state_dict[key.replace('qkv.bias', 'q_proj.bias')] = q_bias
             state_dict[key.replace('qkv.bias', 'k_proj.bias')] = k_bias

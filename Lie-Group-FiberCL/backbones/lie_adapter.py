@@ -35,47 +35,58 @@ class LieAdapter(nn.Module):
         每次 optimizer.step() 后调用 project_() 将 weight 投影回流形。
         这等价于在 Stiefel 流形上做 Riemannian SGD。
 
-    结构:
-        x → down_proj (Stiefel) → ReLU → up_proj (free) → output
+    结构 (与原始 SEMA Adapter 对齐):
+        x → LayerNorm(可选) → down_proj(Stiefel) → ReLU → up_proj(free) → output
     """
 
-    def __init__(self, config, adapter_id=None, dropout=0.0, adapter_scalar=1.0):
+    def __init__(self, config, adapter_id=None, dropout=0.0, adapter_scalar=1.0,
+                 adapter_layernorm_option="none"):
         """
         Args:
             config: 全局配置 (需含 d_model=768, attn_bn=16)
             adapter_id: 适配器标识符
             dropout: Dropout 率
-            adapter_scalar: 输出缩放因子
+            adapter_scalar: 输出缩放因子 (对齐 SEMA Adapter 接口, 但不在 forward 中使用)
+            adapter_layernorm_option: LayerNorm 位置 "in"/"out"/"none"
         """
         super().__init__()
         self.d_model = getattr(config, 'd_model', 768)
         self.bottleneck = getattr(config, 'attn_bn', 16)
         self.adapter_id = adapter_id
 
+        # LayerNorm (对齐 SEMA Adapter)
+        self.adapter_layernorm_option = adapter_layernorm_option
+        self.adapter_layer_norm_before = None
+        if adapter_layernorm_option in ("in", "out"):
+            self.adapter_layer_norm_before = nn.LayerNorm(self.d_model)
+
         # down_proj: [768, 16], 约束在 Stiefel 上 (W^T W = I_16)
         d, r = self.d_model, self.bottleneck
-        self.down_proj = nn.Linear(d, r, bias=False)
+        self.down_proj = nn.Linear(d, r, bias=True)
         # 初始化为随机 Stiefel 点 (Haar 分布)
         with torch.no_grad():
             self.down_proj.weight.data = stiefel_init(d, r).t()  # nn.Linear stores [r, d]
+            nn.init.zeros_(self.down_proj.bias)
 
         self.activation = nn.ReLU()
-
-        # up_proj: [16, 768], 自由参数 (LoRA 风格: 零初始化)
-        self.up_proj = nn.Linear(r, d, bias=False)
-        with torch.no_grad():
-            nn.init.zeros_(self.up_proj.weight)   # 初始输出为零
-
-        self.scalar = float(adapter_scalar)
         self.dropout = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
 
+        # up_proj: [16, 768], 自由参数 (LoRA 风格: 零初始化, 对齐 SEMA Adapter)
+        self.up_proj = nn.Linear(r, d, bias=True)
+        with torch.no_grad():
+            nn.init.zeros_(self.up_proj.weight)
+            nn.init.zeros_(self.up_proj.bias)
+
     def forward(self, x):
-        """前向传播: x → down_proj(Stiefel) → ReLU → up_proj(free)。"""
+        """前向传播: x → LayerNorm(可选) → down_proj(Stiefel) → ReLU → up_proj(free)。"""
+        if self.adapter_layernorm_option == 'in':
+            x = self.adapter_layer_norm_before(x)
+
         h = self.down_proj(x)              # [B,N,768] → [B,N,16]
         h = self.activation(h)
         h = self.dropout(h)
         out = self.up_proj(h)              # [B,N,16] → [B,N,768]
-        return out * self.scalar
+        return out
 
     def project_(self):
         """在 optimizer.step() 后将 down_proj.weight 投影回 Stiefel 流形。

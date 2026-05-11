@@ -185,15 +185,19 @@ class Learner(BaseLearner):
             sema_modules = [m for m in backbone.modules()
                             if isinstance(m, LieSEMAModules)]
 
-            # 检查每个检测层
+            # 检查每个检测层（自顶向下: 9→10→11）
             any_expand = False
             for sm in sema_modules:
                 if not (sm.layer_id >= self.args.get("adapt_start_layer", 9)
                         and sm.layer_id <= self.args.get("adapt_end_layer", 11)):
                     continue
 
+                # 本层已在本任务中扩展过，跳过
+                if sm.added_for_task:
+                    continue
+
                 sm.detecting_outlier = False
-                sm.add_adapter()
+                sm.add_adapter()  # 内部设置 added_for_task = True
                 self._train_new(train_loader, test_loader)
 
                 # ── 投影到 Stiefel 后做几何判断 ──
@@ -211,13 +215,14 @@ class Learner(BaseLearner):
                     sm.freeze_functional()
                     sm.freeze_rd()
                     sm.reset_newly_added_status()
-                    sm.added_for_task = False
+                    # 不重置 added_for_task — 保持 True 防止递归中再次扩展本层
                     break  # 每次最多扩展一层
                 else:
-                    # 回滚: 测地线距离不够, 新 Adapter 与旧 Adapter 几何上太近
+                    # 回滚: 删除临时 Adapter, 重置标志
                     logging.info(f"Block {sm.layer_id}: rollback — geodesic distance too small")
                     sm.adapters.pop(-1)
                     sm.new_router = None
+                    sm.added_for_task = False  # 回滚后允许后续该层被重新检测
                     break
 
             if any_expand:
@@ -228,7 +233,7 @@ class Learner(BaseLearner):
 
     def _init_train(self, total_epoch, train_loader, test_loader,
                     optimizer, scheduler, phase="func"):
-        """单阶段训练循环 — 自由训练, 不约束 Stiefel。"""
+        """单阶段训练循环 — Riemannian SGD，每个 step 后将 down_proj 投影回 Stiefel。"""
         tracker = self.get_loss_tracker()
         prog_bar = tqdm(range(total_epoch))
 
@@ -253,6 +258,10 @@ class Learner(BaseLearner):
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
+
+                # func 阶段: 每个 step 后将可训练 Adapter 的 down_proj 投影回 Stiefel
+                if phase == "func":
+                    self._network.backbone.project_all_adapters_()
 
                 tracker.update(**{phase: loss.item()})
 
