@@ -69,6 +69,7 @@ vpt_type: shallow
 prompt_token_num: 5
 
 wandb:
+  group: Lie-SEMA
   mode: disabled
   project: LiF-CL
   tags: [lie-sema, imagenet-a]

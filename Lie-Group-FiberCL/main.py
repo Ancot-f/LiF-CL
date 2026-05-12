@@ -178,7 +178,7 @@ def _train_single(args):
         _os.environ["WANDB_SILENT"] = "true"
     wandb_logger = WandbLogger(
         project=wandb_cfg.get("project", "LiF-CL"),
-        group="SEMA",
+        group=wandb_cfg.get("group", "SEMA"),
         name=logfilename.replace("/", "_"),
         config=args,
         tags=wandb_cfg.get("tags", []),

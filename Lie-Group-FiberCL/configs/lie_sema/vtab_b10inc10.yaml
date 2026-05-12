@@ -55,7 +55,7 @@ buffer_size: 500
 
 # ── Lie-SEMA 扩展检测 ──
 exp_threshold: 1         # Z-score 阈值 (兼容)
-geo_threshold: 0.3         # 测地线距离阈值 (Stiefel 流形)
+geo_threshold: 1.0         # 测地线距离阈值 (Stiefel 流形)
                                  #   推荐: 0.3 (敏感) ~ 0.8 (保守)
 adapt_start_layer: 9
 adapt_end_layer: 11
@@ -69,6 +69,7 @@ vpt_type: shallow
 prompt_token_num: 5
 
 wandb:
+  group: Lie-SEMA
   mode: disabled
   project: LiF-CL
   tags: [lie-sema, vtab]
