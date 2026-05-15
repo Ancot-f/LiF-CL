@@ -13,8 +13,8 @@ model_name: geo_sema
 
 # ── 数据集 ──
 dataset: vtab
-init_cls: 5
-increment: 5
+init_cls: 10
+increment: 10
 shuffle: true
 
 # ── 主干网络 ──
