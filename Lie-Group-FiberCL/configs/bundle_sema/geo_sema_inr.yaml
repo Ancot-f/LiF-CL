@@ -43,6 +43,7 @@ ffn_adapter_type: adaptmlp
 
 # ── Geometry-MoE 扩展检测 ──
 exp_threshold: 2                   # ImageNet-R 使用标准阈值
+expansion_patience: 3               # 持续性检测: 需要连续 N batch 才触发扩展
 adapt_start_layer: 9
 adapt_end_layer: 11
 rd_dim: 128

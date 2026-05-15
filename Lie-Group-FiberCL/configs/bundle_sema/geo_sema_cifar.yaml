@@ -49,6 +49,7 @@ ffn_adapter_type: adaptmlp
 
 # ── Geometry-MoE 扩展检测 ──
 exp_threshold: 2                   # z-score 阈值 (>阈值触发扩展)
+expansion_patience: 3               # 需要连续 N 个 batch 超过阈值才扩展 (section 9)
 adapt_start_layer: 9               # 深层起始层
 adapt_end_layer: 11                # 深层结束层
 rd_dim: 128                        # AE 压缩维度

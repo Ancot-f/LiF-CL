@@ -165,6 +165,8 @@ def get_backbone(args, pretrained=False):
                 adapt_end_layer=args["adapt_end_layer"],
                 rd_dim=args["rd_dim"],
                 buffer_size=args["buffer_size"],
+                # 多 batch 持续性检测
+                expansion_patience=args.get("expansion_patience", 3),
                 # Group-MoE
                 num_geo_groups=args.get("num_geo_groups", 4),  # Identity, SO, LR, Affine (MambaFlow 独立)
                 router_beta=args.get("router_beta", 0.1),

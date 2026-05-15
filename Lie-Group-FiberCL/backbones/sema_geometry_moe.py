@@ -1218,6 +1218,14 @@ class GeometrySEMAModules(nn.Module):
         self.added_for_task = False      # 当前任务是否已触发扩展
         self.newly_added = True          # 是否有新添加的组件
 
+        # ── 多 batch 持续性检测 (section 9: "condition persists for multiple batches") ──
+        # 累积 z-score 的运行均值, 只有持续超过阈值才触发扩展
+        expansion_patience = getattr(config, 'expansion_patience', 3)  # 需要连续 N 个 batch
+        self._z_score_accum = torch.zeros(4)  # 累积 z-score (per group)
+        self._z_score_count = 0               # 累积 batch 计数
+        self._expansion_patience = expansion_patience
+        self._expansion_candidate = None      # 候选扩展群 (持续高 z-score 的群)
+
         # ── 初始化 GroupMoEAdapter ──
         self.adapters: List[GroupMoEAdapter] = nn.ModuleList()
         self.add_adapter(initialize=True)
@@ -1321,40 +1329,55 @@ class GeometrySEMAModules(nn.Module):
         adapter = self.adapters[-1]
         adapter_out = adapter(x, group_info=group_info)
 
-        # ── 扩展检测逻辑 (section 9) ──
+        # ── 扩展检测逻辑 (section 9): 多 batch 持续性检测 ──
         added = False
         if self.detecting_outlier and not self.added_for_task:
             z_scores = adapter_out.get("z_scores")
             group_probs = adapter_out.get("group_probs")
 
             if z_scores is not None and group_probs is not None:
-                # 获取可扩展群的索引
+                # 更新累积 z-score (运行均值)
+                batch_z_mean = z_scores.mean(dim=0).detach().cpu()  # [G]
+                self._z_score_accum = (
+                    self._z_score_accum * self._z_score_count
+                    + batch_z_mean
+                ) / (self._z_score_count + 1)
+                self._z_score_count += 1
+
+                # 找累积 z-score 最高的可扩展群
                 expandable_groups = ['SO', 'LR', 'Affine']
                 expandable_indices = [
-                    adapter.group_name_to_idx[gn]
+                    self.adapters[-1].group_name_to_idx[gn]
                     for gn in expandable_groups
                 ]
+                best_idx = max(expandable_indices,
+                              key=lambda i: self._z_score_accum[i].item())
+                max_z = self._z_score_accum[best_idx].item()
+                best_group = self.adapters[-1].idx_to_group_name[best_idx]
 
-                # 计算 batch 平均 z-score
-                z_mean = z_scores.mean(dim=0)  # [G]
-
-                # 找 z-score 最高的可扩展群
-                best_idx = max(
-                    expandable_indices,
-                    key=lambda i: z_mean[i].item()
-                )
-                max_z = z_mean[best_idx].item()
-                best_group = adapter.idx_to_group_name[best_idx]
-
-                # 扩展条件: z-score 超过阈值
+                # 持续性检测: 同一群连续 patience 个 batch 超过阈值才扩展
                 if max_z > self.config.exp_threshold:
-                    self.add_expert_to_group(best_group)
-                    self.expansion_count[best_group] += 1
-                    added = True
-                    logging.info(
-                        f"Block {self.layer_id}: 在群 '{best_group}' 中添加专家 "
-                        f"(z={max_z:.3f} > 阈值={self.config.exp_threshold})"
-                    )
+                    if (self._expansion_candidate == best_group
+                            and self._z_score_count >= self._expansion_patience):
+                        self.add_expert_to_group(best_group)
+                        self.expansion_count[best_group] += 1
+                        added = True
+                        logging.info(
+                            f"Block {self.layer_id}: 在群 '{best_group}' 中添加专家 "
+                            f"(累积 z={max_z:.3f} > 阈值={self.config.exp_threshold}, "
+                            f"持续 {self._z_score_count} batches)"
+                        )
+                        # 重置累积器
+                        self._z_score_accum.zero_()
+                        self._z_score_count = 0
+                        self._expansion_candidate = None
+                    else:
+                        # 记录候选群, 等待更多 batch 确认
+                        self._expansion_candidate = best_group
+                else:
+                    # z-score 回落: 清零累积器和候选
+                    self._expansion_candidate = None
+                    # 不重置累积器 (允许逐步衰减)
 
         return {
             "func_out": adapter_out["func_out"],
@@ -1370,11 +1393,15 @@ class GeometrySEMAModules(nn.Module):
     # ═══════════════════════════════════════════════════════════════════════
 
     def end_of_task_training(self):
-        """任务结束时: 冻结所有参数 + 停止 RD 统计更新。"""
+        """任务结束时: 冻结所有参数 + 停止 RD 统计更新 + 重置扩展检测状态。"""
         self.freeze_functional()
         self.freeze_rd()
         self.reset_newly_added_status()
         self.added_for_task = False
+        # 重置多 batch 累积器
+        self._z_score_accum.zero_()
+        self._z_score_count = 0
+        self._expansion_candidate = None
 
     def reset_newly_added_status(self):
         """重置 newly_added 标志。"""
