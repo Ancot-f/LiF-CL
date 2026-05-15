@@ -166,7 +166,7 @@ def get_backbone(args, pretrained=False):
                 rd_dim=args["rd_dim"],
                 buffer_size=args["buffer_size"],
                 # Group-MoE
-                num_geo_groups=args.get("num_geo_groups", 5),
+                num_geo_groups=args.get("num_geo_groups", 4),  # Identity, SO, LR, Affine (MambaFlow 独立)
                 router_beta=args.get("router_beta", 0.1),
                 router_tau=args.get("router_tau", 1.0),
                 # MambaFlow
