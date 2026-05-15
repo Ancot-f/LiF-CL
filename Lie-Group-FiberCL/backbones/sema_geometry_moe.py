@@ -557,9 +557,12 @@ class HierarchicalRouter(nn.Module):
         nn.init.zeros_(last.bias)
 
     def ensure_expert_router(self, group_name, num_experts):
-        """创建或更新指定群的专家路由器。
+        """创建或扩展指定群的专家路由器。
 
-        当群中专家数量变化时 (扩展), 更新路由器以处理新的专家数量。
+        扩展时保留旧路由权重 (冻结旧列, 新列可训练):
+          - 将输出层从 [hidden, old_N] 扩展到 [hidden, new_N]
+          - 旧权重复制, 新权重随机初始化
+          - 旧列梯度冻结, 只有新列参与训练
 
         Args:
             group_name:  群名称 ('SO', 'LR', 'Affine')
@@ -569,16 +572,48 @@ class HierarchicalRouter(nn.Module):
         router_hidden = self.group_router[0].out_features
 
         if group_name not in self.expert_routers:
-            # 为每个专家创建独立的路由器 (简单实现)
-            # 生产环境可优化为共享 backbone + 多头输出
+            # 首次创建
             router = nn.Sequential(
                 nn.Linear(router_input_dim, router_hidden),
                 nn.GELU(),
-                nn.Linear(router_hidden, num_experts),  # 输出 = 专家数
+                nn.Linear(router_hidden, num_experts),
             )
             self.expert_routers[group_name] = router
             nn.init.trunc_normal_(router[-1].weight, std=0.02)
             nn.init.zeros_(router[-1].bias)
+        else:
+            # 扩展已有路由器: 增加输出维度
+            old_router = self.expert_routers[group_name]
+            old_output = old_router[-1]  # nn.Linear(hidden, old_num)
+            old_num = old_output.out_features
+            if num_experts > old_num:
+                # 创建扩展的输出层
+                new_output = nn.Linear(
+                    old_output.in_features, num_experts,
+                    device=old_output.weight.device,
+                )
+                # 复制旧权重 + 随机初始化新列
+                nn.init.trunc_normal_(new_output.weight, std=0.02)
+                nn.init.zeros_(new_output.bias)
+                with torch.no_grad():
+                    new_output.weight.data[:old_num] = old_output.weight.data
+                    new_output.bias.data[:old_num] = old_output.bias.data
+                # 旧列梯度清零 hook: 只允许新列学习, 旧列保持不变
+                # 先 requires_grad=True (hook 需要), 再注册清零 hook
+                new_output.weight.requires_grad_(True)
+                new_output.bias.requires_grad_(True)
+
+                def _zero_old_grad(grad):
+                    grad[:old_num] = 0
+                    return grad
+                new_output.weight.register_hook(_zero_old_grad)
+                new_output.bias.register_hook(_zero_old_grad)
+
+                # 替换
+                old_router[-1] = new_output
+                logging.info(
+                    f"ExpertRouter '{group_name}': {old_num} -> {num_experts} experts"
+                )
 
     def _build_router_input(self, x, z_scores=None, group_usage=None):
         """构建路由器输入特征。
@@ -1217,11 +1252,35 @@ class GeometrySEMAModules(nn.Module):
     def add_expert_to_group(self, group_name):
         """向当前适配器的指定群添加新专家。
 
-        这是持续学习的主要扩展方式 (section 9):
+        扩展后精准解冻策略 (防止灾难性遗忘):
+          - 新专家参数: 可训练 (新建, 不影响旧知识)
+          - 路由器新列: 可训练 (旧列梯度被 hook 清零)
+          - 该群的 AE encoder/decoder: 解冻 (只影响被扩展群)
+          - 其他群 AE: 保持冻结
+          - down_proj/up_proj/MambaFlow: 保持冻结 (共享组件不变)
+
+        持续学习扩展方式 (section 9):
           SO_k -> SO_{k+1}, LR_k -> LR_{k+1}, Affine_k -> Affine_{k+1}
         """
         if self.adapters:
-            return self.adapters[-1].add_expert_to_group(group_name)
+            adapter = self.adapters[-1]
+            success = adapter.add_expert_to_group(group_name)
+            if success:
+                # 1. 解冻路由器新列 (已在 ensure_expert_router 中通过 hook 处理)
+                # 2. 精准解冻: 只解冻被扩展群的 AE encoder/decoder
+                if adapter.group_ae is not None:
+                    group_idx = adapter.group_name_to_idx.get(group_name)
+                    if group_idx is not None and group_idx < len(adapter.group_ae.encoders):
+                        # 只解冻被扩展群的 encoder
+                        for param in adapter.group_ae.encoders[group_idx].parameters():
+                            param.requires_grad = True
+                        # 只解冻被扩展群的 decoder
+                        for param in adapter.group_ae.decoders[group_idx].parameters():
+                            param.requires_grad = True
+                        logging.info(
+                            f"Unfroze group_ae[{group_name}] for RD re-training"
+                        )
+            return success
         return False
 
     def forward(self, x, group_info=None):
