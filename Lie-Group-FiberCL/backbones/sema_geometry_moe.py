@@ -410,9 +410,14 @@ class GroupBank(nn.Module):
             self._add_expert_to_group(group_name)
 
     def _add_expert_to_group(self, group_name):
-        """在指定群中添加一个新专家。"""
+        """在指定群中添加一个新专家，自动迁移到已有专家的设备。"""
         expert = self._expert_factory[group_name]()
-        self.groups[group_name].append(expert)
+        # 将新专家迁移到已有专家的设备 (处理扩展时 CPU -> GPU 迁移)
+        existing = self.groups[group_name]
+        if len(existing) > 0:
+            target_device = next(existing[0].parameters()).device
+            expert = expert.to(target_device)
+        existing.append(expert)
         return expert
 
     def add_expert(self, group_name):
@@ -953,10 +958,14 @@ class GroupMoEAdapter(nn.Module):
         self._init_weights()
 
     def _init_weights(self):
-        """瓶颈投影权重初始化。"""
+        """瓶颈投影权重初始化 (遵循原始 SEMA 的 lora 策略)。
+
+        down_proj: Kaiming Uniform — 保证梯度不消失
+        up_proj:   全零 — 适配器初始输出为零, 不干扰预训练特征
+        """
         nn.init.kaiming_uniform_(self.down_proj.weight, a=math.sqrt(5))
         nn.init.zeros_(self.down_proj.bias)
-        nn.init.kaiming_uniform_(self.up_proj.weight, a=math.sqrt(5))
+        nn.init.zeros_(self.up_proj.weight)   # 关键: 零初始化, 适配器从零开始
         nn.init.zeros_(self.up_proj.bias)
 
     def _get_group_expert_counts(self):
