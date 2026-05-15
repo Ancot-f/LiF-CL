@@ -2,7 +2,10 @@ from collections import defaultdict
 
 
 class LossTracker:
-    """Per-epoch loss tracking with automatic wandb logging.
+    """Per-epoch loss tracking with monotonic wandb step.
+
+    Uses an internal monotonic step counter to avoid step collision
+    when multiple phases (func/rd) train within a single task.
 
     Usage:
         tracker = LossTracker(wandb_logger, task_id=0)
@@ -11,9 +14,11 @@ class LossTracker:
         tracker.update(ce=2.3, kd=0.5, prompt=0.01)
 
         # At end of epoch:
-        tracker.flush(epoch=0)           # logs to wandb as loss/ce, loss/kd, loss/prompt
-        tracker.flush(epoch=1)           # next epoch
+        tracker.flush(epoch=0)           # step 0: loss/ce, loss/kd
+        tracker.flush(epoch=1)           # step 1: loss/ce, loss/kd
     """
+
+    _global_step = 0  # monotonic across all trackers
 
     def __init__(self, wandb_logger, task_id=0):
         self._wandb = wandb_logger
@@ -40,10 +45,7 @@ class LossTracker:
         return averages
 
     def flush(self, epoch):
-        """Compute epoch averages, log to wandb, reset accumulators.
-
-        Args:
-            epoch: current epoch number (for wandb step)
+        """Compute epoch averages, log to wandb (auto-increment step), reset accumulators.
 
         Returns:
             dict: {loss_name: average_value} for local logging
@@ -55,13 +57,17 @@ class LossTracker:
             for name, avg in averages.items():
                 log_data[f"loss/{name}"] = avg
             log_data["epoch"] = epoch
-            # Use combined step: task_id * 1000 + epoch to separate epochs across tasks
-            step = self._task_id * 1000 + epoch
-            self._wandb.log_metrics(log_data, step=step)
+            # 不指定 step，让 wandb 自动递增，避免与 main 循环的 step 冲突
+            self._wandb.log_metrics(log_data)
 
         self._accum.clear()
         self._weights.clear()
         return averages
+
+    @classmethod
+    def reset_global_step(cls):
+        """Reset the global step counter (called at start of new run)."""
+        cls._global_step = 0
 
     def reset(self):
         """Reset accumulators without logging."""

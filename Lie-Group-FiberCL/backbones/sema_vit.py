@@ -31,6 +31,7 @@ from timm.models.vision_transformer import PatchEmbed
 from timm.models.layers import DropPath
 from timm.models.registry import register_model
 from backbones.sema_block import SEMAModules
+from backbones.sema_geometry import GroupRoutedPositionalEncoding
 
 try:
     import safetensors.torch
@@ -124,9 +125,9 @@ class Block(nn.Module):
         self.layer_id = layer_id
         self.writer = writer
 
-    def forward(self, x):
+    def forward(self, x, group_info=None):
         x = x + self.drop_path(self.attn(self.norm1(x)))
-        out = self.adapter_module(x)
+        out = self.adapter_module(x, group_info=group_info)
         adapt_x = out["func_out"]
 
         residual = x
@@ -135,7 +136,7 @@ class Block(nn.Module):
 
         if self.config.ffn_adapt:
             if self.config.ffn_option == 'sequential':
-                out = self.adapter_module(x)
+                out = self.adapter_module(x, group_info=group_info)
                 x = out["func_out"]
             elif self.config.ffn_option == 'parallel':
                 x = x + adapt_x
@@ -212,6 +213,25 @@ class VisionTransformer(nn.Module):
 
         self.optim_config = optim_config
 
+        # ---- Group-Structured Positional Routing (主丛位置路由) ----
+        # 在标准 pos_embed 之上叠加 K 个群位置基的软路由组合
+        # group router: 结构群选择 (近似主丛中的局部截面选择)
+        # group_pos: 纤维上的几何扰动 (关联向量丛视角)
+        self.use_group_pos = (
+            getattr(tuning_config, 'use_group_pos', False)
+            if tuning_config is not None else False
+        )
+        if self.use_group_pos:
+            self.group_pos_encoder = GroupRoutedPositionalEncoding(
+                num_tokens=num_patches + self.num_tokens,
+                embed_dim=embed_dim,
+                num_groups=getattr(tuning_config, 'num_groups', 4),
+                group_scale=getattr(tuning_config, 'group_pos_scale', 0.1),
+                use_lie_param=getattr(tuning_config, 'use_lie_group_pos', False),
+            )
+        else:
+            self.group_pos_encoder = None
+
     def init_weights(self, mode=''):
         raise NotImplementedError()
 
@@ -236,34 +256,51 @@ class VisionTransformer(nn.Module):
             self.head_dist = nn.Linear(self.embed_dim, self.num_classes) if num_classes > 0 else nn.Identity()
 
     def forward_features(self, x):
-        """前向特征提取 —— SEMA 核心数据流。
+        """前向特征提取 —— Bundle-aware SEMA 核心数据流。
 
-        遍历所有 SEMA Block，收集：
-          - features: 最终 [CLS] token 特征
-          - rd_loss: 所有层的表征描述器重建误差之和
-          - added_record: 每层是否触发扩展的标志列表
-
-        如果 added=True（某层触发了扩展），提前退出循环。
+        1. Group Positional Routing: 群结构路由生成 group_info
+        2. 遍历所有 SEMA Block (bundle-aware):
+           - 每层适配器接收 group_info 进行纤维调制
+           - bundle_z_score 检测联合偏移 (特征+群权重)
+           - 收集 rd_loss, geo_rd_loss, bundle_rd_loss, added_record
+        3. 如果 added=True（某层触发了扩展），提前退出循环。
         """
         B = x.shape[0]
         x = self.patch_embed(x)
 
         cls_tokens = self.cls_token.expand(B, -1, -1)
         x = torch.cat((cls_tokens, x), dim=1)
-        x = x + self.pos_embed
+
+        # ---- Group-Structured Positional Routing ----
+        if self.use_group_pos and self.group_pos_encoder is not None:
+            group_ret = self.group_pos_encoder(x, self.pos_embed)
+            x = group_ret["x"]
+            group_info = {
+                "group_pos": group_ret["group_pos"],
+                "group_weights": group_ret["group_weights"],
+                "group_logits": group_ret["group_logits"],
+            }
+        else:
+            x = x + self.pos_embed
+            group_info = None
+
         x = self.pos_drop(x)
 
         rd_losses = torch.tensor(0., device=x.device)
+        geo_rd_losses = torch.tensor(0., device=x.device)
+        bundle_rd_losses = torch.tensor(0., device=x.device)
         added_record = []
 
         for idx, blk in enumerate(self.blocks):
             if self.tuning_config.vpt_on:
                 eee = self.embeddings[idx].expand(B, -1, -1)
                 x = torch.cat([eee, x], dim=1)
-            blk_ret = blk(x)
+            blk_ret = blk(x, group_info=group_info)
             x = blk_ret["blk_out"]
-            rd_loss, added = blk_ret["rd_loss"], blk_ret["added"]
-            rd_losses = rd_losses + rd_loss
+            rd_losses = rd_losses + blk_ret.get("rd_loss", torch.tensor(0., device=x.device))
+            geo_rd_losses = geo_rd_losses + blk_ret.get("geo_rd_loss", torch.tensor(0., device=x.device))
+            bundle_rd_losses = bundle_rd_losses + blk_ret.get("bundle_rd_loss", torch.tensor(0., device=x.device))
+            added = blk_ret.get("added", False)
             added_record.append(added)
             if self.tuning_config.vpt_on:
                 x = x[:, self.tuning_config.vpt_num:, :]
@@ -277,7 +314,16 @@ class VisionTransformer(nn.Module):
             x = self.norm(x)
             outcome = x[:, 0]
 
-        out = {"features": outcome, "rd_loss": rd_losses, "added_record": added_record}
+        out = {
+            "features": outcome,
+            "rd_loss": rd_losses,
+            "geo_rd_loss": geo_rd_losses,
+            "bundle_rd_loss": bundle_rd_losses,
+            "added_record": added_record,
+        }
+        if group_info is not None:
+            out["group_weights"] = group_info["group_weights"]
+            out["group_logits"] = group_info["group_logits"]
         return out
 
     def forward(self, x):

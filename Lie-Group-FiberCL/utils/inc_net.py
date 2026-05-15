@@ -142,6 +142,56 @@ def get_backbone(args, pretrained=False):
             else:
                 raise NotImplementedError("Unknown type {}".format(name))
             return model.eval()
+        elif args["model_name"] == "geo_sema":
+            from backbones import sema_geometry_vit
+            from easydict import EasyDict
+            tuning_config = EasyDict(
+                # Geometry-MoE
+                ffn_adapt=True,
+                ffn_option="parallel",
+                ffn_adapter_layernorm_option="none",
+                ffn_adapter_init_option="lora",
+                ffn_adapter_scalar="0.1",
+                ffn_num=ffn_num,
+                ffn_adapter_type=args["ffn_adapter_type"],
+                d_model=768,
+                attn_bn=ffn_num,
+                # VPT
+                vpt_on=False,
+                vpt_num=0,
+                # Geometry-MoE specific
+                exp_threshold=args["exp_threshold"],
+                adapt_start_layer=args["adapt_start_layer"],
+                adapt_end_layer=args["adapt_end_layer"],
+                rd_dim=args["rd_dim"],
+                buffer_size=args["buffer_size"],
+                # Group-MoE
+                num_geo_groups=args.get("num_geo_groups", 5),
+                router_beta=args.get("router_beta", 0.1),
+                router_tau=args.get("router_tau", 1.0),
+                # MambaFlow
+                mamba_d_state=args.get("mamba_d_state", 16),
+                mamba_d_conv=args.get("mamba_d_conv", 4),
+                mamba_expand=args.get("mamba_expand", 2),
+                # Group-Structured Positional Routing
+                use_group_pos=args.get("use_group_pos", False),
+                num_groups=args.get("num_groups", 4),
+                group_pos_scale=args.get("group_pos_scale", 0.1),
+                use_lie_group_pos=args.get("use_lie_group_pos", False),
+            )
+            if name == "pretrained_vit_b16_224_adapter":
+                model = sema_geometry_vit.geo_sema_vit_base_patch16_224(
+                    num_classes=0, global_pool=False, drop_path_rate=0.0,
+                    tuning_config=tuning_config)
+                model.out_dim = 768
+            elif name == "pretrained_vit_b16_224_in21k_adapter":
+                model = sema_geometry_vit.geo_sema_vit_base_patch16_224_in21k(
+                    num_classes=0, global_pool=False, drop_path_rate=0.0,
+                    tuning_config=tuning_config)
+                model.out_dim = 768
+            else:
+                raise NotImplementedError("Unknown type {}".format(name))
+            return model.eval()
         elif args["model_name"] == "sema":
             from backbones import sema_vit
             from easydict import EasyDict
@@ -163,6 +213,14 @@ def get_backbone(args, pretrained=False):
                 adapt_end_layer=args["adapt_end_layer"],
                 rd_dim=args["rd_dim"],
                 buffer_size=args["buffer_size"],
+                # Bundle-SEMA (Group-Structured Positional Routing)
+                use_group_pos=args.get("use_group_pos", False),
+                num_groups=args.get("num_groups", 4),
+                group_pos_scale=args.get("group_pos_scale", 0.1),
+                use_lie_group_pos=args.get("use_lie_group_pos", False),
+                use_bundle_router=args.get("use_bundle_router", True),
+                lambda_geo=args.get("lambda_geo", 0.1),
+                geo_rd_dim=args.get("geo_rd_dim", 4),
             )
             if name == "pretrained_vit_b16_224_adapter":
                 model = sema_vit.sema_vit_base_patch16_224(num_classes=0,

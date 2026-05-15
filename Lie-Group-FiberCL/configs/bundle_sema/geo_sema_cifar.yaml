@@ -1,0 +1,90 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Geometry-SEMA (Group-MoE + Shared MambaFlow) — CIFAR-100 (B0 Inc10)
+#
+# Architecture:  Fixed GroupBank → Group-MoE experts → Shared MambaFlow
+# Layers 9-11:   Group-MoE + Group-aware AE/RD active
+# Loss:          L_cls + lambda_geo_rd * L_geo_rd + lambda_sem * L_sem
+#
+# Usage:         python main.py --config configs/bundle_sema/geo_sema_cifar.yaml
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ── 实验标识 ──
+prefix: reproduce
+model_name: geo_sema
+
+# ── 数据集 ──
+dataset: cifar100
+init_cls: 10
+increment: 10
+shuffle: true
+
+# ── 主干网络 ──
+backbone_type: pretrained_vit_b16_224_adapter
+
+# ── 硬件 ──
+device: auto
+seed: [1993]
+batch_size: 32
+
+# ── 优化器 ──
+optimizer: sgd
+init_lr: 0.005
+rd_lr: 0.01
+weight_decay: 0.0005
+min_lr: 0
+
+# ── 训练阶段 ──
+func_epoch: 5
+rd_epoch: 20
+
+# ── 适配器配置 ──
+ffn_num: 16                    # Bottleneck dimension r (shared across groups)
+ffn_adapter_type: adaptmlp
+
+# ── Geometry-MoE 扩展检测 ──
+exp_threshold: 2               # Z-score threshold for expert expansion
+adapt_start_layer: 9           # Deep layers start
+adapt_end_layer: 11            # Deep layers end
+rd_dim: 128                    # RD compression dim
+buffer_size: 500               # Running statistics buffer
+
+# ── Group-MoE 配置 ──
+num_geo_groups: 5              # Identity, SO, LR, Affine, MambaFlow
+router_beta: 0.1               # Z-score correction strength in router
+router_tau: 1.0                # Router temperature
+
+# ── MambaFlow 配置 ──
+mamba_d_state: 16              # SSM state dimension
+mamba_d_conv: 4                # Conv1d kernel size
+mamba_expand: 2                # Inner dim expansion factor
+
+# ── 损失权重 (L_total = L_cls + lambda_geo_rd * L_geo_rd + lambda_sem * L_sem) ──
+lambda_geo_rd: 0.1             # Weight for geometry-RD loss
+lambda_sem: 0.01               # Weight for semantic preservation loss
+beta_router: 0.01              # Router consistency weight in L_sem
+
+# ── L_geo_rd 内部权重 (adaptive) ──
+alpha_rd: 1.0                  # Group-aware RD loss weight
+alpha_geo: 0.1                 # SO orthogonality constraint weight
+alpha_bal: 0.01                # Router balance weight
+
+# ── 回放内存 (不使用回放) ──
+memory_size: 0
+memory_per_class: 0
+fixed_memory: false
+
+# ── VPT (不使用 Prompt) ──
+vpt_type: shallow
+prompt_token_num: 5
+
+# ── Group-Structured Positional Routing (可选) ──
+use_group_pos: false
+num_groups: 4
+group_pos_scale: 0.1
+use_lie_group_pos: false
+
+# ── wandb ──
+wandb:
+  mode: online
+  project: LiF-CL
+  tags: [geo-sema, group-moe, mamba-flow, cifar100]

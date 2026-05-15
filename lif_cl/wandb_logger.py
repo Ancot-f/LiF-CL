@@ -92,6 +92,23 @@ class WandbLogger:
                        "expansion/param_ratio"]:
             self._run.define_metric(metric, summary="last")
 
+    def define_metric(self, metric, step_metric=None, summary=None):
+        """Define a wandb metric with optional x-axis and summary.
+
+        Args:
+            metric: metric name (e.g., "eval/cnn_top1")
+            step_metric: metric to use as x-axis (e.g., "eval/total_classes")
+            summary: summary type ("last", "min", "max", None)
+        """
+        if not self._initialized:
+            return
+        kwargs = {}
+        if step_metric is not None:
+            kwargs["step_metric"] = step_metric
+        if summary is not None:
+            kwargs["summary"] = summary
+        self._run.define_metric(metric, **kwargs)
+
     def log_metrics(self, metrics, step=None):
         """Log scalar metrics to wandb."""
         if not self._initialized:

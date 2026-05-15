@@ -64,6 +64,8 @@ def get_model(model_name, args):
         from models.sema import Learner
     elif name == "lie_sema":
         from models.lie_sema import Learner
+    elif name == "geo_sema":
+        from models.geo_sema import Learner
     else:
         assert 0, f"Unknown model_name: {model_name}"
     return Learner(args)
