@@ -66,6 +66,12 @@ def get_model(model_name, args):
         from models.lie_sema import Learner
     elif name == "geo_sema":
         from models.geo_sema import Learner
+    elif name == "flat_moe":
+        from models.flat_moe import Learner
+    elif name == "group_basis_moe":
+        from models.group_basis_moe import Learner
+    elif name == "sparse_geo_moe":
+        from models.sparse_geo_moe import Learner
     else:
         assert 0, f"Unknown model_name: {model_name}"
     return Learner(args)

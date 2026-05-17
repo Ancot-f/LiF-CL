@@ -1,0 +1,85 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# Sparse Geometry-Aware MoE — ImageNet-R (B20 Inc20, 10 tasks)
+# Sparse top-k group selection + intra-group expert expansion
+# 用法:   python main.py --config configs/bundle_sema/sparse_geo_moe_inr.yaml
+# ═══════════════════════════════════════════════════════════════════════════
+
+prefix: reproduce
+model_name: sparse_geo_moe
+
+# ── 数据集 ──
+dataset: imagenetr
+init_cls: 20
+increment: 20
+shuffle: true
+
+# ── 主干网络 ──
+backbone_type: pretrained_vit_b16_224_adapter
+
+# ── 硬件 ──
+device: auto
+seed: [1993]
+batch_size: 32
+
+# ── 优化器 ──
+optimizer: sgd
+init_lr: 0.005
+rd_lr: 0.01
+weight_decay: 0.0005
+min_lr: 0
+
+# ── 训练阶段 ──
+func_epoch: 20
+rd_epoch: 20
+
+# ── Sparse Group MoE 适配器 ──
+ffn_num: 16
+ffn_adapter_type: adaptmlp
+
+# ── Group-Aware AE/RD ──
+rd_dim: 128
+buffer_size: 500
+
+# ── 扩展检测 ──
+exp_threshold: 2
+adapt_start_layer: 9
+adapt_end_layer: 11
+detect_batch_size: 128
+expansion_patience: 3
+
+# ── Sparse Group MoE specific ──
+num_geo_groups: 4
+sparse_top_k: 2
+router_beta: 0.1
+router_tau: 1.0
+
+# ── MambaFlow ──
+mamba_d_state: 16
+mamba_d_conv: 4
+mamba_expand: 2
+
+# ── Group-Structured Positional Routing ──
+use_group_pos: false
+num_groups: 4
+group_pos_scale: 0.1
+use_lie_group_pos: false
+
+# ── 损失权重 ──
+lambda_geo_rd: 0.1
+lambda_sem: 0.01
+beta_router: 0.01
+
+# ── 回放内存 ──
+memory_size: 0
+memory_per_class: 0
+fixed_memory: false
+
+# ── VPT ──
+vpt_type: shallow
+prompt_token_num: 5
+
+# ── wandb ──
+wandb:
+  mode: online
+  project: LiF-CL
+  tags: [sparse_geo_moe, imagenet-r]

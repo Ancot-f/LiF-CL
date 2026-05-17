@@ -86,18 +86,15 @@ def selective_scan(u, delta, A, B, C, D):
     # B: [B, L, N] -> unsqueeze(-2) -> [B, L, 1, N] 保证与 D 维度正确广播
     deltaB_u = delta.unsqueeze(-1) * B.unsqueeze(-2) * u.unsqueeze(-1)
 
-    # 顺序递推扫描
-    h = torch.zeros(Bsz, D, N, device=u.device, dtype=u.dtype)  # 初始状态 h_0 = 0
+    # ── 顺序递推扫描 ──
+    h = torch.zeros(Bsz, D, N, device=u.device, dtype=u.dtype)
     ys = []
     for i in range(L):
-        # h_t = exp(delta_t * A) * h_{t-1} + delta_t * B_t * u_t
         h = deltaA[:, i] * h + deltaB_u[:, i]
-        # y_t = C_t * h_t (内积 sum over state dim) + D * u_t
-        y_i = (h * C[:, i].unsqueeze(-2)).sum(dim=-1)  # [B, D]
+        y_i = (h * C[:, i].unsqueeze(-2)).sum(dim=-1)
         ys.append(y_i)
 
-    y = torch.stack(ys, dim=1)  # [B, L, D]
-    y = y + u * D               # 跳跃连接
+    y = torch.stack(ys, dim=1) + u * D
     return y
 
 
@@ -1048,21 +1045,25 @@ class GroupMoEAdapter(nn.Module):
                 z_scores[:, g] = torch.abs((loss_g - mean) / std)
         return z_scores
 
-    def forward(self, x, group_info=None):
+    def forward(self, x, group_info=None, compute_rd=True):
         """Group-MoE 适配器前向传播。
 
         完整流程:
           1. 瓶颈投影: z = down_proj(norm(x))
-          2. RD z-score 计算 (深度层)
+          2. RD z-score 计算 (深度层, 仅当 compute_rd=True)
           3. 层次路由: group_probs, expert_probs
           4. Group-MoE 混合: z^G = sum_g p(g) * T_g(z)
           5. Mamba 语义流: m = MambaFlow(z^G)
           6. 输出投影: a = up_proj(m)
-          7. RD 损失计算
+          7. RD 损失计算 (仅当 compute_rd=True)
+
+        func 阶段设 compute_rd=False 跳过 AE (4 encode + 4 decode),
+        大幅加速训练。
 
         Args:
             x:          [B, N, d_model] ViT block 输出 u_l
             group_info: 群位置信息 (可选)
+            compute_rd: 是否计算 RD (func 阶段可跳过)
 
         Returns:
             dict:
@@ -1081,22 +1082,18 @@ class GroupMoEAdapter(nn.Module):
         # ═══ Step 2: 路由准备 ═══
         group_expert_counts = self._get_group_expert_counts()
 
-        # 深度层: 计算 RD z-score 用于路由器校正
-        if not self.not_addition_layer and self.group_ae is not None:
-            z_pooled = z.mean(dim=1)  # [B, r] token 平均池化
-
-            # 用均匀概率计算逐群 RD 损失 (路由无关的 RD 评估)
+        # 深度层: 计算 RD z-score 用于路由器校正 (仅在需要时)
+        use_ae = (compute_rd and not self.not_addition_layer
+                  and self.group_ae is not None)
+        if use_ae:
+            z_pooled = z.mean(dim=1)  # [B, r]
             uniform_probs = torch.ones(
                 B, len(self.group_names), device=z.device
             ) / len(self.group_names)
             _, per_group_rd = self.group_ae.compute_group_rd_loss(
                 z_pooled, uniform_probs
             )
-
-            # 计算 z-score
-            z_scores = self._compute_z_scores(per_group_rd)  # [B, G]
-
-            # 群使用统计
+            z_scores = self._compute_z_scores(per_group_rd)
             group_usage = self._get_group_usage().to(z.device).unsqueeze(0).expand(B, -1)
         else:
             z_scores = None
@@ -1104,14 +1101,13 @@ class GroupMoEAdapter(nn.Module):
 
         # ═══ Step 3: 层次路由 ═══
         group_probs, expert_probs = self.router(
-            x,  # 使用原始特征 (非瓶颈) 进行路由
+            x,
             z_scores=z_scores,
             group_usage=group_usage,
             group_expert_counts=group_expert_counts,
         )
 
         # ═══ Step 4: Group-MoE 混合 ═══
-        # z^G = sum_g p(g|h) * T_g(z)
         group_outputs = []
         for i, gn in enumerate(self.group_names):
             g_out, _ = self.group_bank.forward_group(
@@ -1119,40 +1115,31 @@ class GroupMoEAdapter(nn.Module):
             )
             group_outputs.append(g_out)
 
-        # 加权求和: [G, B, N, r] * [G, B, 1, 1] -> sum -> [B, N, r]
         stacked = torch.stack(group_outputs, dim=0)  # [G, B, N, r]
         w = group_probs.transpose(0, 1).unsqueeze(-1).unsqueeze(-1)  # [G, B, 1, 1]
         z_G = (stacked * w).sum(dim=0)  # [B, N, r]
 
         # ═══ Step 5: 共享 MambaFlow ═══
-        # 将几何条件化的 latent 通过 Mamba 语义流算子
         m = self.mamba_flow(z_G)  # [B, N, r]
 
         # ═══ Step 6: 输出投影 ═══
         a = self.up_proj(m)  # [B, N, D]
 
-        # ═══ Step 7: RD 损失计算 (深度层) ═══
+        # ═══ Step 7: RD 损失计算 (仅 compute_rd=True) ═══
         added = False
         group_rd_loss = torch.tensor(0.0, device=x.device)
+        z_scores_out = torch.zeros(B, len(self.group_names), device=x.device)
 
-        if not self.not_addition_layer and self.group_ae is not None:
+        if use_ae:
             z_pooled = z.mean(dim=1)
-
-            # 用实际路由概率计算群加权 RD 损失
             group_rd_loss, per_group_rd = self.group_ae.compute_group_rd_loss(
                 z_pooled, group_probs
             )
             group_rd_loss = group_rd_loss.mean()
-
-            # 记录逐群 RD 统计 (训练时)
             if self.training:
                 for g in range(len(self.group_names)):
                     self.per_group_records[g].add_record(per_group_rd[:, g])
-
-            # 更新 z-score (不 detach, 用于外部扩展检测)
             z_scores_out = self._compute_z_scores(per_group_rd, detach=False)
-        else:
-            z_scores_out = torch.zeros(B, len(self.group_names), device=x.device)
 
         return {
             "func_out": a,
@@ -1313,9 +1300,9 @@ class GeometrySEMAModules(nn.Module):
             or self.layer_id > self.adapt_end_layer
         )
 
-        # ── 浅层/中层: 简单适配器传递, 不检测扩展 ──
+        # ── 浅层/中层: 简单适配器传递, 不检测扩展, 不计算 RD ──
         if not_addition_layer:
-            adapter_out = self.adapters[-1](x, group_info=group_info)
+            adapter_out = self.adapters[-1](x, group_info=group_info, compute_rd=False)
             return {
                 "func_out": adapter_out["func_out"],
                 "group_rd_loss": zero,
@@ -1326,8 +1313,10 @@ class GeometrySEMAModules(nn.Module):
             }
 
         # ── 深层 (9-11): 完整 Group-MoE + 扩展检测 ──
+        # func 阶段 compute_rd=False 跳过 AE 加速; rd 阶段及检测模式 compute_rd=True
+        compute_rd = self.detecting_outlier or getattr(self, '_training_rd', False)
         adapter = self.adapters[-1]
-        adapter_out = adapter(x, group_info=group_info)
+        adapter_out = adapter(x, group_info=group_info, compute_rd=compute_rd)
 
         # ── 扩展检测逻辑 (section 9): 多 batch 持续性检测 ──
         added = False
@@ -1361,6 +1350,7 @@ class GeometrySEMAModules(nn.Module):
                             and self._z_score_count >= self._expansion_patience):
                         self.add_expert_to_group(best_group)
                         self.expansion_count[best_group] += 1
+                        self.added_for_task = True  # 每任务每层最多扩展 1 次
                         added = True
                         logging.info(
                             f"Block {self.layer_id}: 在群 '{best_group}' 中添加专家 "

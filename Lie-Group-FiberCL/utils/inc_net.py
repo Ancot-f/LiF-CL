@@ -194,6 +194,137 @@ def get_backbone(args, pretrained=False):
             else:
                 raise NotImplementedError("Unknown type {}".format(name))
             return model.eval()
+        elif args["model_name"] == "group_basis_moe":
+            from backbones import group_basis_vit
+            from easydict import EasyDict
+            tuning_config = EasyDict(
+                ffn_adapt=True, ffn_option="parallel", ffn_adapter_layernorm_option="none",
+                ffn_adapter_init_option="lora", ffn_adapter_scalar="0.1",
+                ffn_num=ffn_num, ffn_adapter_type=args["ffn_adapter_type"],
+                d_model=768, attn_bn=ffn_num, vpt_on=False, vpt_num=0,
+                init_bases=args.get("init_bases", 2),
+                exp_threshold=args["exp_threshold"],
+                expansion_patience=args.get("expansion_patience", 3),
+                adapt_start_layer=args["adapt_start_layer"],
+                adapt_end_layer=args["adapt_end_layer"],
+                rd_dim=args.get("rd_dim", 32), buffer_size=args["buffer_size"],
+                num_groups=args.get("num_groups", 4),
+                router_beta=args.get("router_beta", 0.1),
+                router_tau=args.get("router_tau", 1.0),
+                protect_threshold=args.get("protect_threshold", 2.0),
+                use_group_pos=args.get("use_group_pos", False),
+                num_groups_pos=args.get("num_groups", 4),
+                group_pos_scale=args.get("group_pos_scale", 0.1),
+                use_lie_group_pos=args.get("use_lie_group_pos", False),
+            )
+            if name == "pretrained_vit_b16_224_adapter":
+                model = group_basis_vit.group_basis_vit_base_patch16_224(
+                    num_classes=0, global_pool=False, drop_path_rate=0.0, tuning_config=tuning_config)
+                model.out_dim = 768
+            elif name == "pretrained_vit_b16_224_in21k_adapter":
+                model = group_basis_vit.group_basis_vit_base_patch16_224(
+                    num_classes=0, global_pool=False, drop_path_rate=0.0, tuning_config=tuning_config)
+                model.out_dim = 768
+            else:
+                raise NotImplementedError("Unknown type {}".format(name))
+            return model.eval()
+        elif args["model_name"] == "flat_moe":
+            from backbones import flat_moe_vit
+            from easydict import EasyDict
+            tuning_config = EasyDict(
+                ffn_adapt=True,
+                ffn_option="parallel",
+                ffn_adapter_layernorm_option="none",
+                ffn_adapter_init_option="lora",
+                ffn_adapter_scalar="0.1",
+                ffn_num=ffn_num,
+                ffn_adapter_type=args["ffn_adapter_type"],
+                d_model=768,
+                attn_bn=ffn_num,
+                vpt_on=False,
+                vpt_num=0,
+                # Flat MoE
+                init_experts=args.get("init_experts", 1),
+                exp_threshold=args["exp_threshold"],
+                expansion_patience=args.get("expansion_patience", 3),
+                adapt_start_layer=args["adapt_start_layer"],
+                adapt_end_layer=args["adapt_end_layer"],
+                rd_dim=args.get("rd_dim", 64),
+                buffer_size=args["buffer_size"],
+                router_beta=args.get("router_beta", 0.1),
+                router_tau=args.get("router_tau", 1.0),
+                use_so_reg=args.get("use_so_reg", True),
+                use_lr_reg=args.get("use_lr_reg", False),
+                use_group_pos=args.get("use_group_pos", False),
+                num_groups=args.get("num_groups", 4),
+                group_pos_scale=args.get("group_pos_scale", 0.1),
+                use_lie_group_pos=args.get("use_lie_group_pos", False),
+            )
+            if name == "pretrained_vit_b16_224_adapter":
+                model = flat_moe_vit.flat_moe_vit_base_patch16_224(
+                    num_classes=0, global_pool=False, drop_path_rate=0.0,
+                    tuning_config=tuning_config)
+                model.out_dim = 768
+            elif name == "pretrained_vit_b16_224_in21k_adapter":
+                model = flat_moe_vit.flat_moe_vit_base_patch16_224_in21k(
+                    num_classes=0, global_pool=False, drop_path_rate=0.0,
+                    tuning_config=tuning_config)
+                model.out_dim = 768
+            else:
+                raise NotImplementedError("Unknown type {}".format(name))
+            return model.eval()
+        elif args["model_name"] == "sparse_geo_moe":
+            from backbones import sparse_geo_vit
+            from easydict import EasyDict
+            tuning_config = EasyDict(
+                # Sparse Group-MoE
+                ffn_adapt=True,
+                ffn_option="parallel",
+                ffn_adapter_layernorm_option="none",
+                ffn_adapter_init_option="lora",
+                ffn_adapter_scalar="0.1",
+                ffn_num=ffn_num,
+                ffn_adapter_type=args["ffn_adapter_type"],
+                d_model=768,
+                attn_bn=ffn_num,
+                # VPT
+                vpt_on=False,
+                vpt_num=0,
+                # Sparse Group-MoE specific
+                exp_threshold=args["exp_threshold"],
+                adapt_start_layer=args["adapt_start_layer"],
+                adapt_end_layer=args["adapt_end_layer"],
+                rd_dim=args["rd_dim"],
+                buffer_size=args["buffer_size"],
+                expansion_patience=args.get("expansion_patience", 3),
+                # Sparse group routing
+                num_geo_groups=args.get("num_geo_groups", 4),
+                sparse_top_k=args.get("sparse_top_k", 2),
+                router_beta=args.get("router_beta", 0.1),
+                router_tau=args.get("router_tau", 1.0),
+                # MambaFlow
+                mamba_d_state=args.get("mamba_d_state", 16),
+                mamba_d_conv=args.get("mamba_d_conv", 4),
+                mamba_expand=args.get("mamba_expand", 2),
+                # Group-Structured Positional Routing
+                use_group_pos=args.get("use_group_pos", False),
+                num_groups=args.get("num_groups", 4),
+                group_pos_scale=args.get("group_pos_scale", 0.1),
+                use_lie_group_pos=args.get("use_lie_group_pos", False),
+            )
+            if name == "pretrained_vit_b16_224_adapter":
+                model = sparse_geo_vit.sparse_geo_vit_base_patch16_224(
+                    num_classes=0, global_pool=False, drop_path_rate=0.0,
+                    tuning_config=tuning_config)
+                model.out_dim = 768
+            elif name == "pretrained_vit_b16_224_in21k_adapter":
+                model = sparse_geo_vit.sparse_geo_vit_base_patch16_224_in21k(
+                    num_classes=0, global_pool=False, drop_path_rate=0.0,
+                    tuning_config=tuning_config)
+                model.out_dim = 768
+            else:
+                raise NotImplementedError("Unknown type {}".format(name))
+            return model.eval()
         elif args["model_name"] == "sema":
             from backbones import sema_vit
             from easydict import EasyDict
