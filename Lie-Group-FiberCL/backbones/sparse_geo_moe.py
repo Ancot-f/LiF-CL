@@ -590,7 +590,7 @@ class RunningRecords:
             self.record = self.record[len(v):]
 
         self._mean = float(torch.mean(self.record[:self._curr_len]))
-        self._var = float(torch.var(self.record[:self._curr_len]))
+        self._var = float(torch.var(self.record[:self._curr_len])) if self._curr_len >= 2 else 0.0
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -695,15 +695,18 @@ class SparseGroupMoEAdapter(nn.Module):
         return usage
 
     def _compute_z_scores(self, per_group_loss, detach=True):
+        """Batch-level z-score: stronger signal for distributional shift detection."""
         B, G = per_group_loss.shape
+        batch_mean_loss = per_group_loss.mean(dim=0)  # [G] batch-average RD loss
         z_scores = torch.zeros(B, G, device=per_group_loss.device)
         for g in range(G):
             rec = self.per_group_records[g]
             if rec.length > 2:
                 mean = rec.mean
                 std = rec.stddev
-                loss_g = per_group_loss[:, g].detach() if detach else per_group_loss[:, g]
-                z_scores[:, g] = torch.abs((loss_g - mean) / std)
+                loss_g = batch_mean_loss[g].detach() if detach else batch_mean_loss[g]
+                z_val = torch.abs((loss_g - mean) / std)
+                z_scores[:, g] = z_val  # broadcast to all samples
         return z_scores
 
     def forward(self, x, compute_rd=True):
@@ -790,7 +793,8 @@ class SparseGroupMoEAdapter(nn.Module):
             group_rd_loss = group_rd_loss.mean()
             if self.training:
                 for g in range(len(self.group_names)):
-                    self.per_group_records[g].add_record(per_group_rd[:, g])
+                    self.per_group_records[g].add_record(
+                        per_group_rd[:, g].mean().unsqueeze(0))  # store batch mean
             z_scores_out = self._compute_z_scores(per_group_rd, detach=False)
 
         return {
@@ -853,6 +857,11 @@ class SparseGroupMoEModules(nn.Module):
         self._z_score_count = 0
         self._expansion_patience = expansion_patience
         self._expansion_candidate = None
+
+        # Adaptive threshold: EMA of historical max z-scores
+        self._z_ema = 0.0      # EMA of per-task max z-scores
+        self._z_var = 1.0      # EMA of squared diffs
+        self._ema_decay = 0.05  # slow decay for long-term trend
 
         # Initialize adapter
         self.adapters: List[SparseGroupMoEAdapter] = nn.ModuleList()
@@ -975,18 +984,37 @@ class SparseGroupMoEModules(nn.Module):
                 max_p = batch_group_prob[best_idx].item()
                 best_group = adapter.idx_to_group_name[best_idx]
 
-                # Trigger: z-score > threshold AND router probability > 0.15
-                if max_z > self.config.exp_threshold and max_p > 0.15:
+                # Adaptive threshold: [base×0.5, base]. EMA only lowers it.
+                base_threshold = self.config.exp_threshold
+                raw_adaptive = self._z_ema + 3.0 * math.sqrt(max(self._z_var, 1e-6))
+                adaptive_threshold = max(min(raw_adaptive, base_threshold),
+                                        base_threshold * 0.5)
+
+                # Debug: log detection state
+                logging.info(
+                    f"L{self.layer_id} detect: z_max={max_z:.3f} "
+                    f"adaptive={adaptive_threshold:.3f} "
+                    f"p={max_p:.3f} best={best_group}")
+
+                # Trigger: z-score > adaptive threshold AND router prob > 0.15
+                if max_z > adaptive_threshold and max_p > 0.15:
                     if (self._expansion_candidate == best_group
                             and self._z_score_count >= self._expansion_patience):
                         self.add_expert_to_group(best_group)
                         self.expansion_count[best_group] += 1
                         self.added_for_task = True
                         added = True
+                        # Update EMA with this expansion event
+                        self._z_ema = (1 - self._ema_decay) * self._z_ema + self._ema_decay * max_z
+                        self._z_var = (1 - self._ema_decay) * self._z_var + self._ema_decay * (max_z - self._z_ema) ** 2
+                        self._z_score_accum.zero_()
+                        self._z_score_count = 0
+                        self._expansion_candidate = None
                         logging.info(
                             f"Block {self.layer_id}: Added expert to group "
                             f"'{best_group}' (z={max_z:.3f} > "
-                            f"threshold={self.config.exp_threshold}, "
+                            f"adaptive={adaptive_threshold:.3f} "
+                            f"(base={base_threshold}), "
                             f"persisted {self._z_score_count} batches)"
                         )
                         self._z_score_accum.zero_()
@@ -1012,6 +1040,12 @@ class SparseGroupMoEModules(nn.Module):
     # ═══════════════════════════════════════════════════════════════════════
 
     def end_of_task_training(self):
+        # Update adaptive threshold EMA with this task's observed max z-score
+        task_max_z = self._z_score_accum.max().item()
+        if task_max_z > 0:
+            self._z_ema = (1 - self._ema_decay) * self._z_ema + self._ema_decay * task_max_z
+            self._z_var = (1 - self._ema_decay) * self._z_var + self._ema_decay * (task_max_z - self._z_ema) ** 2
+
         self.freeze_functional()
         self.freeze_rd()
         self.reset_newly_added_status()
