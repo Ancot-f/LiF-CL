@@ -317,6 +317,14 @@ class Learner(BaseLearner):
                 for adapter in module.adapters:
                     ortho_error = ortho_error + adapter.orthogonality_error()
 
+        # Deviation penalty: prevent capacity-driven group drift (esp. Affine)
+        beta_dev = self.args.get("beta_dev", 0.01)
+        dev_penalty = torch.tensor(0., device=self._device)
+        for module in self._network.backbone.modules():
+            if isinstance(module, SparseGroupMoEModules):
+                for adapter in module.adapters:
+                    dev_penalty = dev_penalty + adapter.group_bank.deviation_penalty()
+
         balance_loss = torch.tensor(0., device=self._device)
         all_group_probs = outcome.get("all_group_probs", [])
         if all_group_probs:
@@ -333,6 +341,7 @@ class Learner(BaseLearner):
             alpha_rd * group_rd_loss
             + alpha_geo * ortho_error
             + alpha_bal * balance_loss
+            + beta_dev * dev_penalty
         )
 
         return geo_rd, {

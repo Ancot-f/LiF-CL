@@ -33,7 +33,7 @@ ffn_adapter_type: adaptmlp
 rd_dim: 128
 buffer_size: 500
 
-exp_threshold: 2
+exp_threshold: 1.5
 adapt_start_layer: 9
 adapt_end_layer: 11
 detect_batch_size: 64

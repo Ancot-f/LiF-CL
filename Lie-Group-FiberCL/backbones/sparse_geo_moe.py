@@ -295,6 +295,22 @@ class GroupBank(nn.Module):
             err = err + expert.orthogonality_error()
         return err
 
+    def deviation_penalty(self):
+        """Penalize deviation from pass-through, weighted by param count.
+        Prevents high-capacity groups (esp. Affine) from dominating z-score.
+        """
+        penalty = 0.0
+        I = torch.eye(self.dim, device=next(self.parameters()).device)
+        for expert in self.groups['SO']:
+            penalty = penalty + torch.norm(expert.R - I, p='fro') ** 2
+        for expert in self.groups['LR']:
+            penalty = penalty + torch.norm(expert.A, p='fro') ** 2
+            penalty = penalty + torch.norm(expert.B, p='fro') ** 2
+        for expert in self.groups['Affine']:
+            penalty = penalty + torch.norm(expert.W - I, p='fro') ** 2
+            penalty = penalty + torch.norm(expert.b, p='fro') ** 2
+        return penalty
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 5. SparseGroupRouter — Sparse group selection + intra-group expert routing
