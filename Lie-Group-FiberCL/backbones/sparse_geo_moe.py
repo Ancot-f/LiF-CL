@@ -253,6 +253,16 @@ class GroupBank(nn.Module):
         if len(existing) > 0:
             target_device = next(existing[0].parameters()).device
             expert = expert.to(target_device)
+            # Mean init + small noise: warm start from collective knowledge
+            with torch.no_grad():
+                for p_new, p_name in zip(expert.parameters(),
+                                         expert.state_dict().keys()):
+                    p_avg = torch.stack([
+                        dict(e.named_parameters())[p_name].data
+                        for e in existing
+                    ]).mean(dim=0)
+                    noise = torch.randn_like(p_avg) * 0.01 * p_avg.std()
+                    p_new.copy_(p_avg + noise)
         existing.append(expert)
         return expert
 
@@ -805,6 +815,7 @@ class SparseGroupMoEAdapter(nn.Module):
             "group_probs": group_probs,
             "expert_probs": expert_probs,
             "selected_mask": selected_mask,
+            "group_transforms": stacked,  # [G, B, N, r] for geometric signal
             "added": added,
         }
 
@@ -863,6 +874,10 @@ class SparseGroupMoEModules(nn.Module):
         self._z_ema = 0.0      # EMA of per-task max z-scores
         self._z_var = 1.0      # EMA of squared diffs
         self._ema_decay = 0.05  # slow decay for long-term trend
+
+        # Router entropy baseline (three-signal expansion detection)
+        self._entropy_ema = 0.0
+        self._entropy_decay = 0.01
 
         # Initialize adapter
         self.adapters: List[SparseGroupMoEAdapter] = nn.ModuleList()
@@ -953,6 +968,14 @@ class SparseGroupMoEModules(nn.Module):
         adapter = self.adapters[-1]
         adapter_out = adapter(x, compute_rd=compute_rd)
 
+        # Track Router entropy: update baseline during normal training
+        gp = adapter_out.get("group_probs")
+        if gp is not None and not self.detecting_outlier and self.training:
+            # H = -Σ p log p, averaged over batch
+            batch_entropy = -(gp * (gp + 1e-8).log()).sum(dim=-1).mean().detach().item()
+            self._entropy_ema = ((1 - self._entropy_decay) * self._entropy_ema
+                                 + self._entropy_decay * batch_entropy)
+
         # Expansion detection with multi-batch persistence
         added = False
         if self.detecting_outlier and not self.added_for_task:
@@ -991,21 +1014,26 @@ class SparseGroupMoEModules(nn.Module):
                 adaptive_threshold = max(min(raw_adaptive, base_threshold),
                                         base_threshold * 0.5)
 
-                # Debug: log detection state
-                logging.info(
-                    f"L{self.layer_id} detect: z_max={max_z:.3f} "
-                    f"adaptive={adaptive_threshold:.3f} "
-                    f"p={max_p:.3f} best={best_group}")
+                # Compute current batch entropy for three-signal check
+                batch_entropy = -(gp * (gp + 1e-8).log()).sum(dim=-1).mean().item()
+                entropy_ratio = (batch_entropy / max(self._entropy_ema, 0.01))
+                entropy_high = (self._entropy_ema > 0 and entropy_ratio > 1.2)
 
-                # Trigger: z-score > adaptive threshold AND router prob > 0.15
-                if max_z > adaptive_threshold and max_p > 0.15:
+                # logging.info(  # disabled: per-batch detect state
+
+                # Three-signal trigger (OR logic for flexibility):
+                # 1. z-score > adaptive threshold  (AE sees anomaly → same-domain)
+                # 2. OR entropy > 1.2× baseline    (Router confused → cross-domain)
+                # 3. AND router prob > 0.15         (Router selects this group)
+                anomaly_z = (max_z > adaptive_threshold)
+                anomaly_h = entropy_high
+                if (max_p > 0.15 and (anomaly_z or anomaly_h)):
                     if (self._expansion_candidate == best_group
                             and self._z_score_count >= self._expansion_patience):
                         self.add_expert_to_group(best_group)
                         self.expansion_count[best_group] += 1
                         self.added_for_task = True
                         added = True
-                        # Update EMA with this expansion event
                         self._z_ema = (1 - self._ema_decay) * self._z_ema + self._ema_decay * max_z
                         self._z_var = (1 - self._ema_decay) * self._z_var + self._ema_decay * (max_z - self._z_ema) ** 2
                         self._z_score_accum.zero_()
@@ -1013,14 +1041,9 @@ class SparseGroupMoEModules(nn.Module):
                         self._expansion_candidate = None
                         logging.info(
                             f"Block {self.layer_id}: Added expert to group "
-                            f"'{best_group}' (z={max_z:.3f} > "
-                            f"adaptive={adaptive_threshold:.3f} "
-                            f"(base={base_threshold}), "
-                            f"persisted {self._z_score_count} batches)"
-                        )
-                        self._z_score_accum.zero_()
-                        self._z_score_count = 0
-                        self._expansion_candidate = None
+                            f"'{best_group}' (z={max_z:.3f} "
+                            f"H={batch_entropy:.3f}/{self._entropy_ema:.3f}, "
+                            f"p={max_p:.3f})")
                     else:
                         self._expansion_candidate = best_group
                 else:

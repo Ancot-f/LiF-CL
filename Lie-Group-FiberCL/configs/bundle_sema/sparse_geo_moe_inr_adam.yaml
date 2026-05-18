@@ -33,7 +33,7 @@ ffn_adapter_type: adaptmlp
 rd_dim: 128
 buffer_size: 500
 
-exp_threshold: 1.5
+exp_threshold: 1.0  # safe to lower: entropy+p(g)+m_g guard false positives
 adapt_start_layer: 9
 adapt_end_layer: 11
 detect_batch_size: 64

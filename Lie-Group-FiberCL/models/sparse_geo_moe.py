@@ -181,40 +181,29 @@ class Learner(BaseLearner):
                 if isinstance(module, SparseGroupMoEModules):
                     module.detecting_outlier = False
 
+            # Detection summary: per-layer z-score / entropy / best group
+            detect_summary = []
+            for module in self._network.backbone.modules():
+                if isinstance(module, SparseGroupMoEModules):
+                    za = module._z_score_accum
+                    best_idx = za.argmax().item()
+                    gn = module.adapters[-1].idx_to_group_name[best_idx]
+                    detect_summary.append(
+                        f"L{module.layer_id}(z={za[best_idx]:.2f} "
+                        f"H={module._entropy_ema:.3f}→{gn})"
+                    )
+            logging.info(
+                f"Task {self._cur_task} detect: {' | '.join(detect_summary)} "
+                f"→ expanded={added}")
+
             if added == 0:
-                # Force expansion: add 1 expert to best (layer, group)
-                best_layer = None
-                best_group = None
-                best_score = -1
-                for module in self._network.backbone.modules():
-                    if isinstance(module, SparseGroupMoEModules):
-                        for g in ['SO', 'LR', 'Affine']:
-                            s = module._z_score_accum[
-                                module.adapters[-1].group_name_to_idx[g]].item()
-                            if s > best_score:
-                                best_score = s
-                                best_group = g
-                                best_layer = module
-                if best_layer and best_score > 0:
-                    best_layer.add_expert_to_group(best_group)
-                    added += 1
-                    logging.info(
-                        f"Forced expansion: L{best_layer.layer_id} {best_group} "
-                        f"(z={best_score:.3f})")
-                    self._train_new(train_loader, test_loader)
-                    for module in self._network.backbone.modules():
-                        if isinstance(module, SparseGroupMoEModules):
-                            module.freeze_functional()
-                            module.freeze_rd()
-                            module.reset_newly_added_status()
-                else:
-                    logging.info("No expansion — fine-tuning routers only")
-                    self.update_optimizer_and_scheduler(
-                        num_epoch=self.args.get("func_epoch", 5), lr=self.init_lr,
-                        expanded=False)
-                    self._init_train(self.args.get("func_epoch", 5),
-                                     train_loader, test_loader,
-                                     self.optimizer, self.scheduler, phase="func")
+                logging.info("No expansion — fine-tuning routers only")
+                self.update_optimizer_and_scheduler(
+                    num_epoch=self.args.get("func_epoch", 5), lr=self.init_lr,
+                    expanded=False)
+                self._init_train(self.args.get("func_epoch", 5),
+                                 train_loader, test_loader,
+                                 self.optimizer, self.scheduler, phase="func")
 
         for module in self._network.backbone.modules():
             if isinstance(module, SparseGroupMoEModules):
@@ -531,8 +520,8 @@ class Learner(BaseLearner):
             train_keys = ["down_proj", "up_proj", "gamma", "router",
                           "fc", "vpt", "group_ae", "mamba", "group_bank"]
         elif expanded:
-            # Post-expansion: train Router + new expert (group_bank) + fc.
-            # Keep base adapter (down/up/mamba) frozen to protect old tasks.
+            # Post-expansion: train Router + new expert + fc.
+            # down/up frozen: shared bottleneck space, protected old tasks.
             train_keys = ["router", "fc", "gamma", "group_bank"]
         else:
             # No expansion: only Router + fc + gate. Preserve old knowledge.

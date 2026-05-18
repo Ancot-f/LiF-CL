@@ -22,11 +22,11 @@ seed: [1993]
 batch_size: 32
 
 # ── 优化器 ──
-optimizer: sgd
-init_lr: 0.005
-rd_lr: 0.01
-weight_decay: 0.0005
-min_lr: 0
+optimizer: adam
+init_lr: 0.0005
+rd_lr: 0.001
+weight_decay: 0.05
+min_lr: 0.000001
 
 # ── 训练阶段 ──
 func_epoch: 20

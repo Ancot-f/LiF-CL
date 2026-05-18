@@ -15,14 +15,14 @@ backbone_type: pretrained_vit_b16_224_adapter
 
 device: auto
 seed: [1993]
-batch_size: 16
+batch_size: 32
 
 # ── SGD (better for small datasets like INA) ──
 optimizer: sgd
 init_lr: 0.005
 rd_lr: 0.01
 weight_decay: 0.0005
-min_lr: 0.0001
+min_lr: 0
 
 func_epoch: 20
 rd_epoch: 20

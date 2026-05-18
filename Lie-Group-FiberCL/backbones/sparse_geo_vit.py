@@ -112,10 +112,12 @@ class Block(nn.Module):
         self.act = act_layer()
         self.mlp_drop = nn.Dropout(drop)
 
+        use_group_moe = getattr(config, 'use_group_moe', True)
         is_deep = (
             config.ffn_adapt
             and layer_id >= getattr(config, 'adapt_start_layer', 9)
             and layer_id <= getattr(config, 'adapt_end_layer', 11)
+            and use_group_moe  # ablation switch
         )
         if config.ffn_adapt:
             if is_deep:

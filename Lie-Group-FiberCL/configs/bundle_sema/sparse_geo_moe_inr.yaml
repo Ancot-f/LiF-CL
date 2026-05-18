@@ -41,7 +41,7 @@ rd_dim: 128
 buffer_size: 500
 
 # ── 扩展检测 ──
-exp_threshold: 1.5
+exp_threshold: 1.0
 adapt_start_layer: 9
 adapt_end_layer: 11
 detect_batch_size: 64
@@ -82,4 +82,4 @@ prompt_token_num: 5
 wandb:
   mode: online
   project: LiF-CL
-  tags: [s'gsparse_geo_moe, imagenet-r]
+  tags: [sgd, sparse_geo_moe, imagenet-r]
