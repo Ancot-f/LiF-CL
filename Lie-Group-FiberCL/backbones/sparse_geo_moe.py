@@ -631,12 +631,11 @@ class SparseGroupMoEAdapter(nn.Module):
         bottleneck = getattr(config, 'ffn_num', 16)
         num_groups = getattr(config, 'num_geo_groups', 4)
 
-        # Shared bottleneck projection
+        # Shared bottleneck projection (all groups operate in SAME geometric space)
         self.down_proj = nn.Linear(d_model, bottleneck)
         self.up_proj = nn.Linear(bottleneck, d_model)
-        self.norm = nn.LayerNorm(d_model)
-        self.gamma = nn.Parameter(torch.tensor(0.1))    # adapter output gate: h = u + γ·a
-        self.mamba_beta = nn.Parameter(torch.tensor(0.01))  # Mamba external residual: m = z_G + β·Flow(z_G)
+        self.gamma = nn.Parameter(torch.tensor(0.1))
+        self.mamba_beta = nn.Parameter(torch.tensor(0.01))
 
         # GroupBank: 4 groups (Identity, SO, LR, Affine)
         self.group_bank = GroupBank(bottleneck)
@@ -653,7 +652,7 @@ class SparseGroupMoEAdapter(nn.Module):
         self.group_name_to_idx = {n: i for i, n in enumerate(self.group_names)}
         self.idx_to_group_name = {i: n for n, i in self.group_name_to_idx.items()}
 
-        # Sparse Group Router (key difference: top-k selection)
+        # Sparse Group Router
         self.router = SparseGroupRouter(
             d_model, num_groups=num_groups,
             beta=getattr(config, 'router_beta', 0.1),
@@ -738,8 +737,8 @@ class SparseGroupMoEAdapter(nn.Module):
         B, N, D = x.shape
 
         # Step 1: Bottleneck projection
-        z = self.down_proj(x)  # [B, N, r]  — no LN upfront, matches SEMA
-        z = F.relu(z)         # ReLU non-linearity, same as SEMA
+        z = self.down_proj(x)  # [B, N, r]
+        z = F.relu(z)
 
         # Step 2: Routing preparation
         group_expert_counts = self._get_group_expert_counts()
@@ -748,7 +747,6 @@ class SparseGroupMoEAdapter(nn.Module):
                   and self.group_ae is not None)
 
         # Step 3: Pre-pass group transforms → AE → z-scores
-        # Use z.detach() to prevent gradient doubling (pre-pass + main-pass)
         zd = z.detach()
         group_outputs_pre = []
         for i, gn in enumerate(self.group_names):
@@ -760,11 +758,11 @@ class SparseGroupMoEAdapter(nn.Module):
             per_group_rd = torch.zeros(B, G, device=z.device)
             uniform_probs = torch.ones(B, G, device=z.device) / G
             for i in range(G):
-                g_latent = group_outputs_pre[i].detach().mean(dim=1)  # [B, r]
+                g_latent = group_outputs_pre[i].detach().mean(dim=1)
                 _, pg = self.group_ae.compute_group_rd_loss(
                     g_latent, uniform_probs
                 )
-                per_group_rd[:, i] = pg[:, i]  # AE_i's error on T_i(z)
+                per_group_rd[:, i] = pg[:, i]
             z_scores = self._compute_z_scores(per_group_rd)
             group_usage = self._get_group_usage().to(z.device).unsqueeze(0).expand(B, -1)
         else:
@@ -1056,6 +1054,7 @@ class SparseGroupMoEModules(nn.Module):
             "group_probs": adapter_out.get("group_probs"),
             "expert_probs": adapter_out.get("expert_probs"),
             "selected_mask": adapter_out.get("selected_mask"),
+            "group_transforms": adapter_out.get("group_transforms"),
             "added": added,
         }
 

@@ -122,7 +122,8 @@ class Learner(BaseLearner):
         self._total_classes = self._known_classes + data_manager.get_task_size(
             self._cur_task)
         logging.info(
-            "Learning on {}-{}".format(self._known_classes, self._total_classes))
+            "══════════════ Task {}: classes {}-{} ══════════════".format(
+                self._cur_task, self._known_classes, self._total_classes))
 
         train_dataset = data_manager.get_dataset(
             np.arange(self._known_classes, self._total_classes),
@@ -520,11 +521,9 @@ class Learner(BaseLearner):
             train_keys = ["down_proj", "up_proj", "gamma", "router",
                           "fc", "vpt", "group_ae", "mamba", "group_bank"]
         elif expanded:
-            # Post-expansion: train Router + new expert + fc.
-            # down/up frozen: shared bottleneck space, protected old tasks.
-            train_keys = ["router", "fc", "gamma", "group_bank"]
+            train_keys = ["router", "fc", "gamma", "group_bank",
+                          "down_proj", "up_proj"]
         else:
-            # No expansion: only Router + fc + gate. Preserve old knowledge.
             train_keys = ["router", "fc", "gamma"]
 
         func_params = [

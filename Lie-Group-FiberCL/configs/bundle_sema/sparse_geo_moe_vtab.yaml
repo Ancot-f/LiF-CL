@@ -33,7 +33,7 @@ func_epoch: 20
 rd_epoch: 20
 
 # ── Sparse Group MoE 适配器 ──
-ffn_num: 16
+ffn_num: 32
 ffn_adapter_type: adaptmlp
 
 # ── Group-Aware AE/RD ──
