@@ -182,12 +182,39 @@ class Learner(BaseLearner):
                     module.detecting_outlier = False
 
             if added == 0:
-                logging.info("No expansion — fine-tuning routers only")
-                self.update_optimizer_and_scheduler(
-                    num_epoch=self.args.get("func_epoch", 5), lr=self.init_lr)
-                self._init_train(self.args.get("func_epoch", 5),
-                                 train_loader, test_loader,
-                                 self.optimizer, self.scheduler, phase="func")
+                # Force expansion: add 1 expert to best (layer, group)
+                best_layer = None
+                best_group = None
+                best_score = -1
+                for module in self._network.backbone.modules():
+                    if isinstance(module, SparseGroupMoEModules):
+                        for g in ['SO', 'LR', 'Affine']:
+                            s = module._z_score_accum[
+                                module.adapters[-1].group_name_to_idx[g]].item()
+                            if s > best_score:
+                                best_score = s
+                                best_group = g
+                                best_layer = module
+                if best_layer and best_score > 0:
+                    best_layer.add_expert_to_group(best_group)
+                    added += 1
+                    logging.info(
+                        f"Forced expansion: L{best_layer.layer_id} {best_group} "
+                        f"(z={best_score:.3f})")
+                    self._train_new(train_loader, test_loader)
+                    for module in self._network.backbone.modules():
+                        if isinstance(module, SparseGroupMoEModules):
+                            module.freeze_functional()
+                            module.freeze_rd()
+                            module.reset_newly_added_status()
+                else:
+                    logging.info("No expansion — fine-tuning routers only")
+                    self.update_optimizer_and_scheduler(
+                        num_epoch=self.args.get("func_epoch", 5), lr=self.init_lr,
+                        expanded=False)
+                    self._init_train(self.args.get("func_epoch", 5),
+                                     train_loader, test_loader,
+                                     self.optimizer, self.scheduler, phase="func")
 
         for module in self._network.backbone.modules():
             if isinstance(module, SparseGroupMoEModules):
@@ -207,10 +234,14 @@ class Learner(BaseLearner):
         self._store_router_probs(train_loader)
 
     def _train_new(self, train_loader, test_loader):
-        """Two-phase training: func → rd."""
+        """Two-phase training: func → rd. Called for Task 0 or after expansion."""
         # Phase 1: functional training (classification)
+        # Task 0: train everything to establish baseline
+        # Post-expansion: only train Router + new expert
+        is_task0 = (self._cur_task == 0)
         self.update_optimizer_and_scheduler(
-            num_epoch=self.args.get("func_epoch", 5), lr=self.init_lr)
+            num_epoch=self.args.get("func_epoch", 5), lr=self.init_lr,
+            expanded=is_task0, is_task0=is_task0)
         self._init_train(self.args.get("func_epoch", 5),
                          train_loader, test_loader,
                          self.optimizer, self.scheduler, phase="func")
@@ -492,12 +523,20 @@ class Learner(BaseLearner):
     # Optimizer management
     # ═══════════════════════════════════════════════════════════════════
 
-    def update_optimizer_and_scheduler(self, num_epoch=20, lr=None):
+    def update_optimizer_and_scheduler(self, num_epoch=20, lr=None,
+                                        expanded=False, is_task0=False):
         lr = self.args["init_lr"] if lr is None else lr
-        # All trainable components. With AdamW, per-parameter adaptive lr
-        # handles gradient scale differences naturally.
-        train_keys = ["down_proj", "up_proj", "gamma", "router",
-                      "fc", "vpt", "group_ae", "mamba", "group_bank"]
+        if is_task0:
+            # Task 0: train full adapter to establish baseline
+            train_keys = ["down_proj", "up_proj", "gamma", "router",
+                          "fc", "vpt", "group_ae", "mamba", "group_bank"]
+        elif expanded:
+            # Post-expansion: train Router + new expert (group_bank) + fc.
+            # Keep base adapter (down/up/mamba) frozen to protect old tasks.
+            train_keys = ["router", "fc", "gamma", "group_bank"]
+        else:
+            # No expansion: only Router + fc + gate. Preserve old knowledge.
+            train_keys = ["router", "fc", "gamma"]
 
         func_params = [
             p for n, p in self._network.named_parameters()

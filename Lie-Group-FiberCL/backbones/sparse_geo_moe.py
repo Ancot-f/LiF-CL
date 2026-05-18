@@ -736,30 +736,38 @@ class SparseGroupMoEAdapter(nn.Module):
 
         use_ae = (compute_rd and not self.not_addition_layer
                   and self.group_ae is not None)
+
+        # Step 3: Pre-pass group transforms → AE → z-scores
+        # Use z.detach() to prevent gradient doubling (pre-pass + main-pass)
+        zd = z.detach()
+        group_outputs_pre = []
+        for i, gn in enumerate(self.group_names):
+            g_out_pre, _ = self.group_bank.forward_group(gn, zd)
+            group_outputs_pre.append(g_out_pre)
+
         if use_ae:
-            z_pooled = z.mean(dim=1)
-            uniform_probs = torch.ones(
-                B, len(self.group_names), device=z.device
-            ) / len(self.group_names)
-            _, per_group_rd = self.group_ae.compute_group_rd_loss(
-                z_pooled, uniform_probs
-            )
+            G = len(self.group_names)
+            per_group_rd = torch.zeros(B, G, device=z.device)
+            uniform_probs = torch.ones(B, G, device=z.device) / G
+            for i in range(G):
+                g_latent = group_outputs_pre[i].detach().mean(dim=1)  # [B, r]
+                _, pg = self.group_ae.compute_group_rd_loss(
+                    g_latent, uniform_probs
+                )
+                per_group_rd[:, i] = pg[:, i]  # AE_i's error on T_i(z)
             z_scores = self._compute_z_scores(per_group_rd)
             group_usage = self._get_group_usage().to(z.device).unsqueeze(0).expand(B, -1)
         else:
             z_scores = None
             group_usage = None
 
-        # Step 3: Sparse group routing (the key innovation)
-        # s_g = logits_g - beta * z_score_g  →  top-k  →  re-normalize
+        # Step 4: Router WITH z-score correction (s_g = logits - beta*z_score)
         group_probs, expert_probs, selected_mask = self.router(
-            x,
-            z_scores=z_scores,
-            group_usage=group_usage,
+            x, z_scores=z_scores, group_usage=group_usage,
             group_expert_counts=group_expert_counts,
         )
 
-        # Step 4: Group-MoE mix — ONLY selected groups contribute
+        # Step 5: Group-MoE mix with corrected routing
         group_outputs = []
         for i, gn in enumerate(self.group_names):
             g_out, _ = self.group_bank.forward_group(
@@ -768,34 +776,27 @@ class SparseGroupMoEAdapter(nn.Module):
             group_outputs.append(g_out)
 
         stacked = torch.stack(group_outputs, dim=0)  # [G, B, N, r]
-        # Sparse weights: non-selected groups have weight ≈ 0
         w = group_probs.transpose(0, 1).unsqueeze(-1).unsqueeze(-1)  # [G, B, 1, 1]
         z_G = (stacked * w).sum(dim=0)  # [B, N, r]
 
-        # Step 5: Shared MambaFlow with external residual
-        # m_l = z_l^G + β_l * SharedMambaFlow(z_l^G)
+        # Step 6: Shared MambaFlow with external residual
         m = z_G + self.mamba_beta * self.mamba_flow(z_G)
 
-        # Step 6: Output projection with adapter gate
-        # a_l = W_up(m_l),  h_{l+1} = u_l + γ_l * a_l
+        # Step 7: Output projection with adapter gate
         a = self.gamma * self.up_proj(m)
 
-        # Step 7: RD loss computation
+        # Step 8: RD loss + records on POST-group latent
         added = False
         group_rd_loss = torch.tensor(0.0, device=x.device)
-        z_scores_out = torch.zeros(B, len(self.group_names), device=x.device)
+        z_scores_out = z_scores if z_scores is not None else \
+                       torch.zeros(B, len(self.group_names), device=x.device)
 
-        if use_ae:
-            z_pooled = z.mean(dim=1)
-            group_rd_loss, per_group_rd = self.group_ae.compute_group_rd_loss(
-                z_pooled, group_probs
-            )
-            group_rd_loss = group_rd_loss.mean()
-            if self.training:
-                for g in range(len(self.group_names)):
-                    self.per_group_records[g].add_record(
-                        per_group_rd[:, g].mean().unsqueeze(0))  # store batch mean
-            z_scores_out = self._compute_z_scores(per_group_rd, detach=False)
+        if use_ae and self.training:
+            # RD loss: weighted sum over groups using group_probs
+            group_rd_loss = (per_group_rd * group_probs).sum(dim=-1).mean()
+            for g in range(len(self.group_names)):
+                self.per_group_records[g].add_record(
+                    per_group_rd[:, g].mean().unsqueeze(0))
 
         return {
             "func_out": a,

@@ -82,4 +82,4 @@ prompt_token_num: 5
 wandb:
   mode: online
   project: LiF-CL
-  tags: [sparse_geo_moe, imagenet-r]
+  tags: [s'gsparse_geo_moe, imagenet-r]

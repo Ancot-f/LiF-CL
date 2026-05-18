@@ -1,28 +1,28 @@
 # ═══════════════════════════════════════════════════════════════════════════
-# Sparse Geometry-Aware MoE — ImageNet-R (AdamW variant)
-# 用法:   python main.py --config configs/bundle_sema/sparse_geo_moe_inr_adam.yaml
+# Sparse Geometry-Aware MoE — ImageNet-A (AdamW, B20 Inc20, 10 tasks)
+# 用法:   python main.py --config configs/bundle_sema/sparse_geo_moe_ina_adam.yaml
 # ═══════════════════════════════════════════════════════════════════════════
 
 prefix: reproduce
 model_name: sparse_geo_moe
 
-dataset: imagenetr
-init_cls: 40
-increment: 40
+dataset: imageneta
+init_cls: 10
+increment: 10
 shuffle: true
 
 backbone_type: pretrained_vit_b16_224_adapter
 
 device: auto
 seed: [1993]
-batch_size: 32
+batch_size: 16
 
-# ── AdamW ──
-optimizer: adam
-init_lr: 0.0005
-rd_lr: 0.001
-weight_decay: 0.05
-min_lr: 0.000001
+# ── SGD (better for small datasets like INA) ──
+optimizer: sgd
+init_lr: 0.005
+rd_lr: 0.01
+weight_decay: 0.0005
+min_lr: 0.0001
 
 func_epoch: 20
 rd_epoch: 20
@@ -67,4 +67,4 @@ prompt_token_num: 5
 wandb:
   mode: online
   project: LiF-CL
-  tags: [sparse_geo_moe, imagenet-r, adamw]
+  tags: [sparse_geo_moe, imagenet-a, adamw]
