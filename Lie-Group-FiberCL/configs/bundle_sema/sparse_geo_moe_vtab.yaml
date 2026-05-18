@@ -9,9 +9,9 @@ model_name: sparse_geo_moe
 
 # ── 数据集 ──
 dataset: vtab
-init_cls: 0
-increment: 5
-shuffle: true
+init_cls: 10
+increment: 10
+shuffle: false
 
 # ── 主干网络 ──
 backbone_type: pretrained_vit_b16_224_adapter
@@ -41,10 +41,10 @@ rd_dim: 128
 buffer_size: 500
 
 # ── 扩展检测 ──
-exp_threshold: 2
+exp_threshold: 1
 adapt_start_layer: 9
 adapt_end_layer: 11
-detect_batch_size: 128
+detect_batch_size: 64
 expansion_patience: 3
 
 # ── Sparse Group MoE specific ──

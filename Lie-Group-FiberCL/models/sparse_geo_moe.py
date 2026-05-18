@@ -485,9 +485,8 @@ class Learner(BaseLearner):
 
     def update_optimizer_and_scheduler(self, num_epoch=20, lr=None):
         lr = self.args["init_lr"] if lr is None else lr
-        # All tasks: full training set. Shallow layers (SimpleAdapter) provide
-        # baseline capacity matching SEMA; deep layers (Group-MoE) learn
-        # group specialization from Task 0 onward.
+        # All trainable components. With AdamW, per-parameter adaptive lr
+        # handles gradient scale differences naturally.
         train_keys = ["down_proj", "up_proj", "gamma", "router",
                       "fc", "vpt", "group_ae", "mamba", "group_bank"]
 
@@ -512,7 +511,7 @@ class Learner(BaseLearner):
         lr = self.args.get("rd_lr", 0.01) if lr is None else lr
         rd_params = [
             p for n, p in self._network.named_parameters()
-            if ("group_ae" in n or "rd" in n)
+            if ("group_ae" in n or "rd" in n)  # AE only, NOT group_bank
             and p.requires_grad
         ]
         if self.args.get("optimizer", "sgd") == "sgd":
