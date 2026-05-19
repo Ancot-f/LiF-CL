@@ -241,19 +241,21 @@ class Learner(BaseLearner):
                          train_loader, test_loader,
                          self.optimizer, self.scheduler, phase="func")
 
-        # Phase 2: RD training (representation descriptor)
-        for module in self._network.backbone.modules():
-            if isinstance(module, SparseGroupMoEModules):
-                module._training_rd = True
-        self.update_rd_optimizer_and_scheduler(
-            num_epoch=self.args.get("rd_epoch", 20),
-            lr=self.args.get("rd_lr", 0.01))
-        self._init_train(self.args.get("rd_epoch", 20),
-                         train_loader, test_loader,
-                         self.rd_optimizer, self.rd_scheduler, phase="rd")
-        for module in self._network.backbone.modules():
-            if isinstance(module, SparseGroupMoEModules):
-                module._training_rd = False
+        # Phase 2: RD training (skip if geometric RD — no AE to train)
+        use_geo = self.args.get("use_geo_rd", True)
+        if not use_geo:
+            for module in self._network.backbone.modules():
+                if isinstance(module, SparseGroupMoEModules):
+                    module._training_rd = True
+            self.update_rd_optimizer_and_scheduler(
+                num_epoch=self.args.get("rd_epoch", 20),
+                lr=self.args.get("rd_lr", 0.01))
+            self._init_train(self.args.get("rd_epoch", 20),
+                             train_loader, test_loader,
+                             self.rd_optimizer, self.rd_scheduler, phase="rd")
+            for module in self._network.backbone.modules():
+                if isinstance(module, SparseGroupMoEModules):
+                    module._training_rd = False
 
     def _detect_outlier(self, detect_loader, train_loader, test_loader, added):
         """Outlier detection + recursive expansion."""

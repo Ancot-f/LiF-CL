@@ -313,6 +313,7 @@ def get_backbone(args, pretrained=False):
                 use_lie_group_pos=args.get("use_lie_group_pos", False),
                 # Ablation: set false to use SimpleAdapter in all 12 layers
                 use_group_moe=args.get("use_group_moe", True),
+                use_geo_rd=args.get("use_geo_rd", True),
             )
             if name == "pretrained_vit_b16_224_adapter":
                 model = sparse_geo_vit.sparse_geo_vit_base_patch16_224(

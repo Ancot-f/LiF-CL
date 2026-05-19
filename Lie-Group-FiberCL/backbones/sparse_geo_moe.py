@@ -720,11 +720,16 @@ class SparseGroupMoEAdapter(nn.Module):
             or layer_id > config.adapt_end_layer
         )
         if not self.not_addition_layer:
-            self.group_ae = GroupAwareAE(
-                bottleneck,
-                rd_dim=getattr(config, 'rd_dim', 128),
-                num_groups=num_groups,
-            )
+            # Geometric RD: replace AE with Lie group invariants
+            self.use_geo_rd = getattr(config, 'use_geo_rd', True)
+            if self.use_geo_rd:
+                self.group_ae = None  # no AE needed
+            else:
+                self.group_ae = GroupAwareAE(
+                    bottleneck,
+                    rd_dim=getattr(config, 'rd_dim', 128),
+                    num_groups=num_groups,
+                )
             self.per_group_records: List[RunningRecords] = [
                 RunningRecords(max_len=getattr(config, 'buffer_size', 500))
                 for _ in range(num_groups)
@@ -732,6 +737,7 @@ class SparseGroupMoEAdapter(nn.Module):
         else:
             self.group_ae = None
             self.per_group_records = None
+            self.use_geo_rd = False
 
         self.newly_added = True
         self._init_weights()
@@ -767,10 +773,28 @@ class SparseGroupMoEAdapter(nn.Module):
             usage[idx] = float(self.group_bank.num_experts(gn))
         return usage
 
+    def _compute_geo_errors(self, z, group_outputs):
+        """Per-group geometric errors from intrinsic Lie group invariants.
+        Replaces AE reconstruction for detection — no RD training needed.
+        Returns [B, G] geometric errors.
+        """
+        B = z.shape[0]
+        G = len(self.group_names)
+        z_norm = z.mean(dim=(1, 2)).abs() + 1e-8  # [B] average ||z||
+        geo_err = torch.zeros(B, G, device=z.device)
+        for i, gn in enumerate(self.group_names):
+            if gn == 'Identity':
+                geo_err[:, i] = 0.0  # pass-through always "normal"
+            else:
+                t_g = group_outputs[i]  # [B, N, d]
+                diff = (t_g - z).norm(dim=(1, 2))  # [B] Frobenius per sample
+                geo_err[:, i] = diff / z_norm  # relative deviation
+        return geo_err
+
     def _compute_z_scores(self, per_group_loss, detach=True):
         """Batch-level z-score: stronger signal for distributional shift detection."""
         B, G = per_group_loss.shape
-        batch_mean_loss = per_group_loss.mean(dim=0)  # [G] batch-average RD loss
+        batch_mean_loss = per_group_loss.mean(dim=0)  # [G] batch-average
         z_scores = torch.zeros(B, G, device=per_group_loss.device)
         for g in range(G):
             rec = self.per_group_records[g]
@@ -779,7 +803,7 @@ class SparseGroupMoEAdapter(nn.Module):
                 std = rec.stddev
                 loss_g = batch_mean_loss[g].detach() if detach else batch_mean_loss[g]
                 z_val = torch.abs((loss_g - mean) / std)
-                z_scores[:, g] = z_val  # broadcast to all samples
+                z_scores[:, g] = z_val
         return z_scores
 
     def forward(self, x, compute_rd=True):
@@ -807,8 +831,9 @@ class SparseGroupMoEAdapter(nn.Module):
         # Step 2: Routing preparation
         group_expert_counts = self._get_group_expert_counts()
 
-        use_ae = (compute_rd and not self.not_addition_layer
-                  and self.group_ae is not None)
+        is_deep = not self.not_addition_layer
+        use_ae = (compute_rd and is_deep and self.group_ae is not None)
+        use_geo = (is_deep and getattr(self, 'use_geo_rd', False))
 
         # Step 3: Pre-pass group transforms → AE → z-scores
         zd = z.detach()
@@ -817,7 +842,7 @@ class SparseGroupMoEAdapter(nn.Module):
             g_out_pre, _ = self.group_bank.forward_group(gn, zd)
             group_outputs_pre.append(g_out_pre)
 
-        if use_ae:
+        if use_ae and compute_rd:
             G = len(self.group_names)
             per_group_rd = torch.zeros(B, G, device=z.device)
             uniform_probs = torch.ones(B, G, device=z.device) / G
@@ -828,6 +853,10 @@ class SparseGroupMoEAdapter(nn.Module):
                 )
                 per_group_rd[:, i] = pg[:, i]
             z_scores = self._compute_z_scores(per_group_rd)
+            group_usage = self._get_group_usage().to(z.device).unsqueeze(0).expand(B, -1)
+        elif use_geo and compute_rd:
+            geo_err = self._compute_geo_errors(z, group_outputs_pre)
+            z_scores = self._compute_z_scores(geo_err)
             group_usage = self._get_group_usage().to(z.device).unsqueeze(0).expand(B, -1)
         else:
             z_scores = None
@@ -863,12 +892,21 @@ class SparseGroupMoEAdapter(nn.Module):
         z_scores_out = z_scores if z_scores is not None else \
                        torch.zeros(B, len(self.group_names), device=x.device)
 
-        if use_ae and self.training:
-            # RD loss: weighted sum over groups using group_probs
+        if use_ae and self.training and compute_rd:
             group_rd_loss = (per_group_rd * group_probs).sum(dim=-1).mean()
             for g in range(len(self.group_names)):
                 self.per_group_records[g].add_record(
                     per_group_rd[:, g].mean().unsqueeze(0))
+        elif use_geo and self.training:
+            geo_err = self._compute_geo_errors(z.detach(),
+                         group_outputs_pre if compute_rd else group_outputs)
+            if compute_rd:
+                group_rd_loss = geo_err.mean()
+            else:
+                group_rd_loss = torch.tensor(0.0, device=z.device)
+            for g in range(len(self.group_names)):
+                self.per_group_records[g].add_record(
+                    geo_err[:, g].mean().unsqueeze(0))
 
         return {
             "func_out": a,
@@ -1055,6 +1093,7 @@ class SparseGroupMoEModules(nn.Module):
         # Router entropy baseline (three-signal expansion detection)
         self._entropy_ema = 0.0
         self._entropy_decay = 0.01
+        self._entropy_set = False  # set True after Task 0, freeze baseline
 
         # FiberRouter: simple linear + learnable temperature (enough for fiber selection)
         self.fiber_router = nn.Linear(getattr(config, 'd_model', 768), 1)
@@ -1107,8 +1146,8 @@ class SparseGroupMoEModules(nn.Module):
         self.add_adapter(initialize=False)
         new_fiber = self.adapters[-1]
         old_fiber = self.adapters[-2]
-        eps = 0.03 * max(z_score, 1.0)  # z=1→3%, z=2→6%, z=5→15% of ||down||
-        eps = min(eps, 0.15)
+        eps = 0.08 * max(z_score, 1.0)  # z=1→8%, z=2→16% of ||down|| (~5-10°)
+        eps = min(eps, 0.25)
         new_fiber.init_from_adapter(old_fiber, eps=eps)
         logging.info(f"Fiber {self.layer_id}.{len(self.adapters)-1} "
                       f"eps={eps:.3f} (z={z_score:.2f})")
@@ -1223,11 +1262,10 @@ class SparseGroupMoEModules(nn.Module):
         adapter = self.adapters[-1]
         adapter_out = fiber_outs[-1]
 
-        # Track Router entropy baseline during RD phase (model frozen, router stable)
+        # Track Router entropy baseline (Task 0 runtime, freeze after)
         gp = adapter_out.get("group_probs")
-        if (gp is not None and not self.detecting_outlier
-                and self.training and getattr(self, '_training_rd', False)
-                and len(self.adapters) == 1 and self._entropy_ema < 0.01):
+        if (gp is not None and not self._entropy_set
+                and not self.detecting_outlier and self.training):
             batch_entropy = -(gp * (gp + 1e-8).log()).sum(dim=-1).mean().detach().item()
             self._entropy_ema = ((1 - self._entropy_decay) * self._entropy_ema
                                  + self._entropy_decay * batch_entropy)
@@ -1329,7 +1367,7 @@ class SparseGroupMoEModules(nn.Module):
     # ═══════════════════════════════════════════════════════════════════════
 
     def end_of_task_training(self):
-        # Update adaptive threshold EMA with this task's observed max z-score
+        self._entropy_set = True  # freeze entropy baseline after Task 0
         task_max_z = self._z_score_accum.max().item()
         if task_max_z > 0:
             self._z_ema = (1 - self._ema_decay) * self._z_ema + self._ema_decay * task_max_z
