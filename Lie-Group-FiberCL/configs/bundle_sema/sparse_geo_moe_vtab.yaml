@@ -37,14 +37,14 @@ ffn_num: 32
 ffn_adapter_type: adaptmlp
 
 # ── Group-Aware AE/RD ──
-rd_dim: 128
+rd_dim: 12
 buffer_size: 500
 
 # ── 扩展检测 ──
 exp_threshold: 1
 adapt_start_layer: 9
 adapt_end_layer: 11
-detect_batch_size: 64
+detect_batch_size: 32
 expansion_patience: 3
 
 # ── Sparse Group MoE specific ──

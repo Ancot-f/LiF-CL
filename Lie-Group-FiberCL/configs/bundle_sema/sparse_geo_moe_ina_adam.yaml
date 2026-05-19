@@ -27,13 +27,13 @@ min_lr: 0
 func_epoch: 20
 rd_epoch: 20
 
-ffn_num: 16
+ffn_num: 32
 ffn_adapter_type: adaptmlp
 
-rd_dim: 128
+rd_dim: 12
 buffer_size: 500
 
-exp_threshold: 1.5
+exp_threshold: 0.8
 adapt_start_layer: 9
 adapt_end_layer: 11
 detect_batch_size: 64

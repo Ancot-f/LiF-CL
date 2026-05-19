@@ -160,6 +160,49 @@ class SimpleAdapter(nn.Module):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# 3.5 Stiefel / Grassmann utilities (Level 1+2: geometric fiber)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def stiefel_retraction(U):
+    """Project U back onto Stiefel manifold St(d,D): U Σ V^T → U V^T."""
+    _U, _, _Vh = torch.linalg.svd(U.float(), full_matrices=False)
+    return (_U @ _Vh).to(U.dtype)
+
+def stiefel_loss(down):
+    """L_stiefel = ||down^T down - I||_F^2."""
+    return torch.norm(down @ down.T - torch.eye(down.shape[0], device=down.device), p='fro') ** 2
+
+def grassmann_geodesic_perturb(down, eps=0.01):
+    """Perturb 'down' along a random Grassmann geodesic. eps relative to ||down||_F."""
+    D, d = down.shape[1], down.shape[0]
+    Δ = torch.randn_like(down)
+    Δ = Δ - down @ (down.T @ Δ + Δ.T @ down) / 2  # project to tangent space
+    scale = eps * torch.norm(down, p='fro') / (torch.norm(Δ, p='fro') + 1e-8)
+    Δ = scale * Δ
+    return stiefel_retraction(down + Δ)
+
+def parallel_transport_so(R_old, down_old, down_new):
+    """Parallel transport SO(r) matrix from fiber(down_old) to fiber(down_new)."""
+    O = down_new @ down_old.T  # [d, d]  fiber overlap
+    U, _, Vh = torch.linalg.svd(O.float(), full_matrices=False)
+    Q = (U @ Vh).to(R_old.dtype)  # optimal rotation between fibers
+    return Q @ R_old @ Q.T  # conjugate by Q
+
+def parallel_transport_lr(A_old, B_old, down_old, down_new):
+    """Parallel transport LR factors via the fiber overlap."""
+    O = down_new @ down_old.T
+    A_new = O @ A_old
+    B_new = B_old @ O.T
+    return A_new, B_new
+
+def parallel_transport_affine(W_old, b_old, down_old, down_new):
+    """Parallel transport Affine parameters."""
+    O = down_new @ down_old.T
+    W_new = O @ W_old @ O.T
+    b_new = O @ b_old
+    return W_new, b_new
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # 4. Group Experts — geometric group-specific experts
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -349,7 +392,7 @@ class SparseGroupRouter(nn.Module):
         self.top_k = top_k  # number of groups to select
 
         router_input_dim = dim + num_groups * 2  # mean(D) + z_scores(G) + group_usage(G)
-        router_hidden = router_hidden or max(dim // 8, 32)  # Smaller hidden for efficiency
+        router_hidden = router_hidden or max(dim // 16, 32)  # compact hidden
 
         self.group_router = nn.Sequential(
             nn.Linear(router_input_dim, router_hidden),
@@ -631,9 +674,8 @@ class SparseGroupMoEAdapter(nn.Module):
         bottleneck = getattr(config, 'ffn_num', 16)
         num_groups = getattr(config, 'num_geo_groups', 4)
 
-        # Shared bottleneck projection (all groups operate in SAME geometric space)
-        self.down_proj = nn.Linear(d_model, bottleneck)
-        self.up_proj = nn.Linear(bottleneck, d_model)
+        # Stiefel fiber: down ∈ St(bottleneck, d_model), up = down^T
+        self.down_proj = nn.Linear(d_model, bottleneck, bias=False)
         self.gamma = nn.Parameter(torch.tensor(0.1))
         self.mamba_beta = nn.Parameter(torch.tensor(0.01))
 
@@ -686,9 +728,21 @@ class SparseGroupMoEAdapter(nn.Module):
 
     def _init_weights(self):
         nn.init.kaiming_uniform_(self.down_proj.weight, a=math.sqrt(5))
-        nn.init.zeros_(self.down_proj.bias)
-        nn.init.zeros_(self.up_proj.weight)
-        nn.init.zeros_(self.up_proj.bias)
+        self.down_proj.weight.data = stiefel_retraction(self.down_proj.weight.data)
+
+    def _up(self):
+        """up = down^T (Stiefel: orthogonal projection)."""
+        return self.down_proj.weight.T  # [bottleneck, d_model]
+
+    def stiefel_project(self):
+        """Project down back onto Stiefel after gradient step."""
+        with torch.no_grad():
+            self.down_proj.weight.data = stiefel_retraction(
+                self.down_proj.weight.data)
+
+    def stiefel_penalty(self):
+        """L_stiefel = ||down @ down^T - I||²."""
+        return stiefel_loss(self.down_proj.weight)
 
     def _get_group_expert_counts(self):
         return {
@@ -791,7 +845,7 @@ class SparseGroupMoEAdapter(nn.Module):
         m = z_G + self.mamba_beta * self.mamba_flow(z_G)
 
         # Step 7: Output projection with adapter gate
-        a = self.gamma * self.up_proj(m)
+        a = self.gamma * F.linear(m, self._up())
 
         # Step 8: RD loss + records on POST-group latent
         added = False
@@ -813,9 +867,124 @@ class SparseGroupMoEAdapter(nn.Module):
             "group_probs": group_probs,
             "expert_probs": expert_probs,
             "selected_mask": selected_mask,
-            "group_transforms": stacked,  # [G, B, N, r] for geometric signal
+            "z_G": z_G,  # [B, N, r] pre-MambaFlow bottleneck (for shared MambaFlow)
+            "group_transforms": stacked,
             "added": added,
         }
+
+    def init_from_adapter(self, other, eps=0.05):
+        """Geodesic perturbation on down only. GroupBank stays at default init.
+
+        - down_new = geodesic_perturb(down_old)   (Grassmann geodesic)
+        - GroupBank: default near-pass-through     (fresh start, like Task 0)
+        """
+        with torch.no_grad():
+            down_old = other.down_proj.weight.data
+            self.down_proj.weight.data.copy_(
+                grassmann_geodesic_perturb(down_old, eps=eps))
+
+    def expand_fiber(self, k=8):
+        """Expand fiber dimension: St(d,D) → St(d+k,D) with old as geodesic submanifold.
+
+        New rows initialized orthogonal to old rows. GroupBank/GroupAwareAE expand accordingly.
+        Old parameters frozen, new parameters trainable.
+        """
+        d_old, D = self.down_proj.weight.shape  # [d, D]
+        d_new = d_old + k
+
+        # 1. Expand down_proj: old rows frozen, new rows orthogonal
+        old_down = self.down_proj.weight.data.clone().detach()
+        for param in self.down_proj.parameters():
+            param.requires_grad = False
+
+        new_down_weight = nn.Parameter(torch.zeros(k, D))
+        # QR to get orthogonal complement: find k vectors ⊥ old rows
+        Q, _ = torch.linalg.qr(torch.randn(k, D).to(old_down.device))
+        proj = Q @ old_down.T
+        Q_orth = Q - proj @ old_down  # remove projection onto old span
+        U, _, _ = torch.linalg.svd(Q_orth.float(), full_matrices=False)
+        new_down_weight.data.copy_(U[:k].to(old_down.dtype) * 0.1)  # small init
+
+        self.down_proj.weight = nn.Parameter(torch.cat([old_down, new_down_weight.data], dim=0))
+        self.down_proj.out_features = d_new
+        self.down_proj.in_features = D
+
+        # 2. Expand GroupBank: block-diagonal [old, 0; 0, new_I]
+        for gn in ['SO', 'LR', 'Affine']:
+            for expert in self.group_bank.groups[gn]:
+                self._expand_group_params(expert, d_old, k, gn)
+
+        # 3. Expand GroupAwareAE: encoders/decoders to handle d_new dims
+        if self.group_ae is not None:
+            rd_dim = self.group_ae.rd_dim
+            for i in range(self.group_ae.num_groups):
+                old_enc = self.group_ae.encoders[i]
+                old_dec = self.group_ae.decoders[i]
+                # Expand: add k input/output dims, zero-init new weights
+                new_enc = nn.Linear(d_new, rd_dim).to(old_enc.weight.device)
+                new_dec = nn.Linear(rd_dim, d_new).to(old_dec.weight.device)
+                with (torch.no_grad()):
+                    new_enc.weight[:, :d_old] = old_enc.weight
+                    new_enc.bias.copy_(old_enc.bias)
+                    new_dec.weight[:d_old, :] = old_dec.weight
+                    new_dec.bias[:d_old] = old_dec.bias
+                for p in old_enc.parameters(): p.requires_grad = False
+                for p in old_dec.parameters(): p.requires_grad = False
+                self.group_ae.encoders[i] = new_enc
+                self.group_ae.decoders[i] = new_dec
+
+        # 4. Expand MambaFlow to handle d_new dims
+        old_mamba = self.mamba_flow
+        for param in old_mamba.parameters():
+            param.requires_grad = False
+        new_mamba = SharedMambaFlow(d_new, d_state=old_mamba.d_state,
+                                    d_conv=getattr(self.config, 'mamba_d_conv', 4),
+                                    expand=old_mamba.expand)
+        new_mamba.to(old_down.device)
+        with torch.no_grad():
+            # Copy old weights into new (top-left block for matrices)
+            for (no, po), (nn, pn) in zip(
+                    old_mamba.named_parameters(), new_mamba.named_parameters()):
+                if po.dim() >= 2 and po.shape == pn.shape[:po.dim()]:
+                    # Same shape (e.g. bias-like) — copy directly
+                    if po.shape == pn.shape:
+                        pn.copy_(po)
+        self.mamba_flow = new_mamba
+
+        logging.info(
+            f"Fiber expanded: St({d_old},{D}) → St({d_new},{D}) "
+            f"(old {d_old} rows frozen, new {k} rows trainable)"
+        )
+
+    def _expand_group_params(self, expert, d_old, k, gn):
+        """Block-diagonal expansion: old params in top-left, identity in bottom-right."""
+        I_k = torch.eye(k, device=next(expert.parameters()).device)
+        zero_ok = torch.zeros(k, d_old, device=next(expert.parameters()).device)
+        for name, param in list(expert.named_parameters()):
+            param.requires_grad = False
+            old_val = param.data
+            if 'R' in name:  # SO: R [d,d]
+                new_val = torch.block_diag(old_val, I_k)
+            elif 'A' in name:  # LR.A [d, r] — expand to [d+k, r+k//2]
+                r = old_val.shape[1]
+                rk = max(1, r * k // d_old)
+                new_val = torch.zeros(d_old + k, r + rk, device=old_val.device)
+                new_val[:d_old, :r] = old_val
+                new_val[d_old:, r:] = I_k[:k, :rk] * 0.1
+            elif 'B' in name:  # LR.B [r, d]
+                r = old_val.shape[0]
+                rk = max(1, r * k // d_old)
+                new_val = torch.zeros(r + rk, d_old + k, device=old_val.device)
+                new_val[:r, :d_old] = old_val
+                new_val[r:, d_old:] = I_k[:rk, :k] * 0.1
+            elif 'W' in name:  # Affine.W [d,d]
+                new_val = torch.block_diag(old_val, I_k)
+            elif 'b' in name:  # Affine.b [d]
+                new_val = torch.cat([old_val, torch.zeros(k, device=old_val.device)])
+            else:
+                continue
+            new_param = nn.Parameter(new_val)
+            setattr(expert, name, new_param)
 
     def add_expert_to_group(self, group_name):
         success = self.group_bank.add_expert(group_name)
@@ -877,10 +1046,26 @@ class SparseGroupMoEModules(nn.Module):
         self._entropy_ema = 0.0
         self._entropy_decay = 0.01
 
-        # Initialize adapter
+        # FiberRouter: simple linear + learnable temperature (enough for fiber selection)
+        self.fiber_router = nn.Linear(getattr(config, 'd_model', 768), 1)
+        nn.init.zeros_(self.fiber_router.weight)
+        nn.init.zeros_(self.fiber_router.bias)
+        self.fiber_tau = nn.Parameter(torch.tensor(1.0))
+
+        # Shared MambaFlow across fibers (semantic alignment after fiber mixing)
+        bottleneck = getattr(config, 'ffn_num', 16)
+        mamba_cfg = {'d_state': getattr(config, 'mamba_d_state', 16),
+                     'd_conv': getattr(config, 'mamba_d_conv', 4),
+                     'expand': getattr(config, 'mamba_expand', 2)}
+        self.shared_mamba = SharedMambaFlow(bottleneck, **mamba_cfg)
+        self.mamba_beta = nn.Parameter(torch.tensor(0.01))
+
+        # Multi-fiber: each adapter is a fiber with Stiefel + GroupBank
         self.adapters: List[SparseGroupMoEAdapter] = nn.ModuleList()
         self.add_adapter(initialize=True)
 
+        # Adaptive dual expansion: expert (stage 0) → fiber (stage 1)
+        self._expand_stage = 0
         self.expansion_count = {'SO': 0, 'LR': 0, 'Affine': 0}
 
     @property
@@ -900,10 +1085,42 @@ class SparseGroupMoEModules(nn.Module):
         self.newly_added = True
         self.added_for_task = True
         self.adapters.append(new_adapter)
+        self._resize_fiber_router()
         if not initialize:
-            logging.info(
-                f"SparseGroupMoEAdapter {self.layer_id}.{adapter_id} added"
-            )
+            logging.info(f"Fiber {self.layer_id}.{adapter_id} added")
+
+    def add_fiber(self, z_score=1.0):
+        """Add new fiber. eps ∝ z_score: small shift for same-domain, large for cross."""
+        if len(self.adapters) == 0:
+            self.add_adapter(initialize=True)
+            return
+        self.add_adapter(initialize=False)
+        new_fiber = self.adapters[-1]
+        old_fiber = self.adapters[-2]
+        eps = 0.03 * max(z_score, 1.0)  # z=1→3%, z=2→6%, z=5→15% of ||down||
+        eps = min(eps, 0.15)
+        new_fiber.init_from_adapter(old_fiber, eps=eps)
+        logging.info(f"Fiber {self.layer_id}.{len(self.adapters)-1} "
+                      f"eps={eps:.3f} (z={z_score:.2f})")
+        logging.info(
+            f"Fiber {self.layer_id}.{len(self.adapters)-1} "
+            f"geodesic init from fiber {self.layer_id}.{len(self.adapters)-2}")
+
+    def _resize_fiber_router(self):
+        n = len(self.adapters)
+        old_n = self.fiber_router.out_features
+        if old_n < n:
+            old = self.fiber_router
+            new_r = nn.Linear(old.in_features, n, device=old.weight.device)
+            with torch.no_grad():
+                new_r.weight[:old_n] = old.weight
+                new_r.bias[:old_n] = old.bias
+            def _freeze_old_cols(grad):
+                grad[:old_n] = 0.0
+                return grad
+            new_r.weight.register_hook(_freeze_old_cols)
+            new_r.bias.register_hook(_freeze_old_cols)
+            self.fiber_router = new_r
 
     def add_expert_to_group(self, group_name):
         """Add new expert to specified group in the latest adapter.
@@ -961,15 +1178,45 @@ class SparseGroupMoEModules(nn.Module):
                 "added": False,
             }
 
-        # Deep layers: full sparse group MoE + expansion detection
+        # Deep layers: multi-fiber mix + expansion detection
         compute_rd = self.detecting_outlier or getattr(self, '_training_rd', False)
-        adapter = self.adapters[-1]
-        adapter_out = adapter(x, compute_rd=compute_rd)
+        fiber_outs = [adapter(x, compute_rd=compute_rd)
+                      for adapter in self.adapters]
 
-        # Track Router entropy: update baseline during normal training
+        # Fiber softmax mixing with z-score feedback (symmetric to group routing)
+        if len(self.adapters) > 1:
+            x_pool = x.mean(dim=1)
+            f_logits = self.fiber_router(x_pool)  # [B, F]
+            # Fiber z-score: max over groups → penalize anomalous fibers
+            f_z_list = []
+            for fo in fiber_outs:
+                zs = fo.get("z_scores")
+                if zs is not None:
+                    f_z_list.append(zs.max(dim=-1)[0])  # [B]
+                else:
+                    f_z_list.append(torch.zeros(x.shape[0], device=x.device))
+            f_z = torch.stack(f_z_list, dim=-1)  # [B, F]
+            f_logits = f_logits - 0.1 * f_z.detach()
+            f_weights = F.softmax(f_logits / self.fiber_tau.abs(), dim=-1)
+            w_f = f_weights.unsqueeze(-1).unsqueeze(-1)
+            func_mixed = sum(w_f[:, i] * fiber_outs[i]["func_out"]
+                             for i in range(len(self.adapters)))
+            # Shared MambaFlow on fiber-mixed bottleneck (semantic alignment)
+            z_mixed = sum(w_f[:, i] * fiber_outs[i]["z_G"]
+                          for i in range(len(self.adapters)))
+            m_shared = z_mixed + self.mamba_beta * self.shared_mamba(z_mixed)
+            func_mixed = func_mixed + 0.2 * F.linear(m_shared, self.adapters[0]._up())
+        else:
+            func_mixed = fiber_outs[0]["func_out"]
+
+        # Detection uses latest fiber only
+        adapter = self.adapters[-1]
+        adapter_out = fiber_outs[-1]
+
+        # Track Router entropy baseline (Task 0 only, then frozen forever)
         gp = adapter_out.get("group_probs")
-        if gp is not None and not self.detecting_outlier and self.training:
-            # H = -Σ p log p, averaged over batch
+        if (gp is not None and not self.detecting_outlier
+                and self.training and len(self.adapters) == 1 and self.newly_added):
             batch_entropy = -(gp * (gp + 1e-8).log()).sum(dim=-1).mean().detach().item()
             self._entropy_ema = ((1 - self._entropy_decay) * self._entropy_ema
                                  + self._entropy_decay * batch_entropy)
@@ -1028,27 +1275,36 @@ class SparseGroupMoEModules(nn.Module):
                 if (max_p > 0.15 and (anomaly_z or anomaly_h)):
                     if (self._expansion_candidate == best_group
                             and self._z_score_count >= self._expansion_patience):
-                        self.add_expert_to_group(best_group)
-                        self.expansion_count[best_group] += 1
+                        # Adaptive dual expansion: signal-driven
+                        # Expert: one group dominates (p_max - p_second > 0.15) → direction right, capacity short
+                        # Fiber:   probs spread out            → whole space insufficient
+                        gp_sorted = batch_group_prob.sort(descending=True)[0]
+                        prob_concentrated = (gp_sorted[0] - gp_sorted[1] > 0.15)
+
+                        if prob_concentrated and max_z < 1.5:
+                            self.add_expert_to_group(best_group)
+                            self.expansion_count[best_group] += 1
+                            msg = (f"expert in '{best_group}' (z={max_z:.3f})")
+                        else:
+                            self.add_fiber(z_score=max_z)
+                            msg = (f"fiber (z={max_z:.3f}, {len(self.adapters)} fibers total)")
                         self.added_for_task = True
                         added = True
+                        logging.info(
+                            f"Block {self.layer_id}: Added {msg} "
+                            f"H={batch_entropy:.3f}/{self._entropy_ema:.3f}")
                         self._z_ema = (1 - self._ema_decay) * self._z_ema + self._ema_decay * max_z
                         self._z_var = (1 - self._ema_decay) * self._z_var + self._ema_decay * (max_z - self._z_ema) ** 2
                         self._z_score_accum.zero_()
                         self._z_score_count = 0
                         self._expansion_candidate = None
-                        logging.info(
-                            f"Block {self.layer_id}: Added expert to group "
-                            f"'{best_group}' (z={max_z:.3f} "
-                            f"H={batch_entropy:.3f}/{self._entropy_ema:.3f}, "
-                            f"p={max_p:.3f})")
                     else:
                         self._expansion_candidate = best_group
                 else:
                     self._expansion_candidate = None
 
         return {
-            "func_out": adapter_out["func_out"],
+            "func_out": func_mixed,
             "group_rd_loss": adapter_out["group_rd_loss"],
             "z_scores": adapter_out.get("z_scores"),
             "group_probs": adapter_out.get("group_probs"),
@@ -1073,6 +1329,7 @@ class SparseGroupMoEModules(nn.Module):
         self.freeze_rd()
         self.reset_newly_added_status()
         self.added_for_task = False
+        self._expand_stage = 0
         self._z_score_accum.zero_()
         self._z_score_count = 0
         self._expansion_candidate = None
@@ -1083,10 +1340,14 @@ class SparseGroupMoEModules(nn.Module):
             adapter.newly_added = False
 
     def freeze_functional(self):
+        for param in self.fiber_router.parameters():
+            param.requires_grad = False
+        self.fiber_tau.requires_grad_(False)
+        for param in self.shared_mamba.parameters():
+            param.requires_grad = False
+        self.mamba_beta.requires_grad_(False)
         for adapter in self.adapters:
             for param in adapter.down_proj.parameters():
-                param.requires_grad = False
-            for param in adapter.up_proj.parameters():
                 param.requires_grad = False
             adapter.gamma.requires_grad_(False)
             adapter.mamba_beta.requires_grad_(False)

@@ -206,6 +206,10 @@ class Learner(BaseLearner):
                                  train_loader, test_loader,
                                  self.optimizer, self.scheduler, phase="func")
 
+        # Fiber diagnostics after training
+        if self._cur_task > 0 and len(self._multiple_gpus) <= 1:
+            self._diagnose_fibers(train_loader)
+
         for module in self._network.backbone.modules():
             if isinstance(module, SparseGroupMoEModules):
                 module.end_of_task_training()
@@ -346,6 +350,13 @@ class Learner(BaseLearner):
                 for adapter in module.adapters:
                     dev_penalty = dev_penalty + adapter.group_bank.deviation_penalty()
 
+        # Stiefel regularization: keep fiber orthogonal
+        stiefel_loss_val = torch.tensor(0., device=self._device)
+        for module in self._network.backbone.modules():
+            if isinstance(module, SparseGroupMoEModules):
+                for adapter in module.adapters:
+                    stiefel_loss_val = stiefel_loss_val + adapter.stiefel_penalty()
+
         balance_loss = torch.tensor(0., device=self._device)
         all_group_probs = outcome.get("all_group_probs", [])
         if all_group_probs:
@@ -363,6 +374,7 @@ class Learner(BaseLearner):
             + alpha_geo * ortho_error
             + alpha_bal * balance_loss
             + beta_dev * dev_penalty
+            + 0.01 * stiefel_loss_val
         )
 
         return geo_rd, {
@@ -433,6 +445,11 @@ class Learner(BaseLearner):
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
+                # Stiefel projection: keep down on manifold after each step
+                for module in self._network.backbone.modules():
+                    if isinstance(module, SparseGroupMoEModules):
+                        for adapter in module.adapters:
+                            adapter.stiefel_project()
 
                 tracker.update(**{phase: loss.item()})
 
@@ -519,12 +536,13 @@ class Learner(BaseLearner):
         if is_task0:
             # Task 0: train full adapter to establish baseline
             train_keys = ["down_proj", "up_proj", "gamma", "router",
+                          "fiber_router", "fiber_tau", "shared_mamba", "mamba_beta",
                           "fc", "vpt", "group_ae", "mamba", "group_bank"]
         elif expanded:
-            train_keys = ["router", "fc", "gamma", "group_bank",
-                          "down_proj", "up_proj"]
+            train_keys = ["router", "fiber_router", "fc", "gamma",
+                          "group_bank", "down_proj", "up_proj"]
         else:
-            train_keys = ["router", "fc", "gamma"]
+            train_keys = ["router", "fiber_router", "fc", "gamma"]
 
         func_params = [
             p for n, p in self._network.named_parameters()
@@ -547,7 +565,7 @@ class Learner(BaseLearner):
         lr = self.args.get("rd_lr", 0.01) if lr is None else lr
         rd_params = [
             p for n, p in self._network.named_parameters()
-            if ("group_ae" in n or "rd" in n)  # AE only, NOT group_bank
+            if ("group_ae" in n or "rd" in n)
             and p.requires_grad
         ]
         if self.args.get("optimizer", "sgd") == "sgd":
@@ -558,10 +576,39 @@ class Learner(BaseLearner):
             self.rd_optimizer = optim.AdamW(
                 rd_params, lr=lr,
                 weight_decay=self.args.get("weight_decay", 0.0005))
-
         min_lr = self.args.get("min_lr", 1e-8)
         self.rd_scheduler = optim.lr_scheduler.CosineAnnealingLR(
             self.rd_optimizer, T_max=num_epoch, eta_min=min_lr)
+
+    def _diagnose_fibers(self, train_loader):
+        """Log fiber overlap / router weights / GroupBank deviation for debugging."""
+        self._network.eval()
+        import math as _math
+        with torch.no_grad():
+            for module in self._network.backbone.modules():
+                if not isinstance(module, SparseGroupMoEModules):
+                    continue
+                if len(module.adapters) < 2:
+                    continue
+                # Subspace overlap between fibers
+                down0 = module.adapters[0].down_proj.weight.data  # [d, D]
+                down1 = module.adapters[1].down_proj.weight.data
+                overlap = (down1 @ down0.T).norm(p='fro').item() / _math.sqrt(down0.shape[0])
+                # GroupBank deviation from pass-through
+                dev0 = module.adapters[0].group_bank.deviation_penalty().item()
+                dev1 = module.adapters[1].group_bank.deviation_penalty().item()
+                # FiberRouter weights on a sample batch
+                # Random input for fiber routing diag (relative comparison only)
+                x = torch.randn(2, 197, 768, device=self._device)
+                f_logits = module.fiber_router(x.mean(dim=1))
+                f_weights = F.softmax(f_logits, dim=-1).mean(dim=0)
+                logging.info(
+                    f"L{module.layer_id} fiber diag: "
+                    f"overlap={overlap:.3f} "
+                    f"weights={f_weights.tolist()} "
+                    f"gb_dev0={dev0:.4f} gb_dev1={dev1:.4f}"
+                )
+        self._network.train()
 
     def save_checkpoint(self, filename):
         state_dict = self._network.state_dict()

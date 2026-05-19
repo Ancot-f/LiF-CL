@@ -37,7 +37,7 @@ ffn_num: 16
 ffn_adapter_type: adaptmlp
 
 # ── Group-Aware AE/RD ──
-rd_dim: 128
+rd_dim: 12
 buffer_size: 500
 
 # ── 扩展检测 ──

@@ -7,8 +7,8 @@ prefix: reproduce
 model_name: sparse_geo_moe
 
 dataset: imagenetr
-init_cls: 40
-increment: 40
+init_cls: 20
+increment: 20
 shuffle: true
 
 backbone_type: pretrained_vit_b16_224_adapter
@@ -27,10 +27,10 @@ min_lr: 0.000001
 func_epoch: 20
 rd_epoch: 20
 
-ffn_num: 16
+ffn_num: 32
 ffn_adapter_type: adaptmlp
 
-rd_dim: 128
+rd_dim: 12
 buffer_size: 500
 
 exp_threshold: 1.0  # safe to lower: entropy+p(g)+m_g guard false positives
@@ -67,4 +67,4 @@ prompt_token_num: 5
 wandb:
   mode: online
   project: LiF-CL
-  tags: [sparse_geo_moe, imagenet-r, adamw]
+  tags: [10task, sparse_geo_moe, imagenet-r, adamw]
