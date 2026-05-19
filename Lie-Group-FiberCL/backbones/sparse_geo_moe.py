@@ -181,6 +181,16 @@ def grassmann_geodesic_perturb(down, eps=0.01):
     Δ = scale * Δ
     return stiefel_retraction(down + Δ)
 
+def fiber_angles(down_a, down_b):
+    """Canonical angles between two Stiefel fibers: θ_i = arccos(σ_i(U @ V^T)).
+    Returns max and mean in radians. Large max → well-separated fibers."""
+    U, V = down_a, down_b  # both [d, D] with orthonormal rows
+    overlap = U @ V.T  # [d, d]
+    _, sigma, _ = torch.linalg.svd(overlap.float(), full_matrices=False)
+    angles = torch.acos(sigma.clamp(0, 1))
+    return angles.max().item(), angles.mean().item()
+    return angles.max().item(), angles.mean().item()
+
 def parallel_transport_so(R_old, down_old, down_new):
     """Parallel transport SO(r) matrix from fiber(down_old) to fiber(down_new)."""
     O = down_new @ down_old.T  # [d, d]  fiber overlap
@@ -1213,10 +1223,11 @@ class SparseGroupMoEModules(nn.Module):
         adapter = self.adapters[-1]
         adapter_out = fiber_outs[-1]
 
-        # Track Router entropy baseline (Task 0 only, then frozen forever)
+        # Track Router entropy baseline during RD phase (model frozen, router stable)
         gp = adapter_out.get("group_probs")
         if (gp is not None and not self.detecting_outlier
-                and self.training and len(self.adapters) == 1 and self.newly_added):
+                and self.training and getattr(self, '_training_rd', False)
+                and len(self.adapters) == 1 and self._entropy_ema < 0.01):
             batch_entropy = -(gp * (gp + 1e-8).log()).sum(dim=-1).mean().detach().item()
             self._entropy_ema = ((1 - self._entropy_decay) * self._entropy_ema
                                  + self._entropy_decay * batch_entropy)
@@ -1266,10 +1277,7 @@ class SparseGroupMoEModules(nn.Module):
 
                 # logging.info(  # disabled: per-batch detect state
 
-                # Three-signal trigger (OR logic for flexibility):
-                # 1. z-score > adaptive threshold  (AE sees anomaly → same-domain)
-                # 2. OR entropy > 1.2× baseline    (Router confused → cross-domain)
-                # 3. AND router prob > 0.15         (Router selects this group)
+                # Multi-signal trigger (OR):
                 anomaly_z = (max_z > adaptive_threshold)
                 anomaly_h = entropy_high
                 if (max_p > 0.15 and (anomaly_z or anomaly_h)):
@@ -1284,10 +1292,12 @@ class SparseGroupMoEModules(nn.Module):
                         if prob_concentrated and max_z < 1.5:
                             self.add_expert_to_group(best_group)
                             self.expansion_count[best_group] += 1
-                            msg = (f"expert in '{best_group}' (z={max_z:.3f})")
+                            fid = len(self.adapters) - 1
+                            msg = (f"expert in '{best_group}' (fiber_{fid}, z={max_z:.3f})")
                         else:
                             self.add_fiber(z_score=max_z)
-                            msg = (f"fiber (z={max_z:.3f}, {len(self.adapters)} fibers total)")
+                            fid = len(self.adapters) - 1
+                            msg = (f"fiber_{fid} (z={max_z:.3f}, {len(self.adapters)} total)")
                         self.added_for_task = True
                         added = True
                         logging.info(

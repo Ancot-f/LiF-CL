@@ -182,15 +182,16 @@ class Learner(BaseLearner):
                 if isinstance(module, SparseGroupMoEModules):
                     module.detecting_outlier = False
 
-            # Detection summary: per-layer z-score / entropy / best group
+            # Detection summary: best EXPANDABLE group z-score (skip Identity)
             detect_summary = []
+            expandable_ids = [1, 2, 3]  # SO, LR, Affine
             for module in self._network.backbone.modules():
                 if isinstance(module, SparseGroupMoEModules):
                     za = module._z_score_accum
-                    best_idx = za.argmax().item()
-                    gn = module.adapters[-1].idx_to_group_name[best_idx]
+                    best_eid = max(expandable_ids, key=lambda i: za[i].item())
+                    gn = module.adapters[-1].idx_to_group_name[best_eid]
                     detect_summary.append(
-                        f"L{module.layer_id}(z={za[best_idx]:.2f} "
+                        f"L{module.layer_id}(z={za[best_eid]:.2f} "
                         f"H={module._entropy_ema:.3f}→{gn})"
                     )
             logging.info(
@@ -590,10 +591,11 @@ class Learner(BaseLearner):
                     continue
                 if len(module.adapters) < 2:
                     continue
-                # Subspace overlap between fibers
-                down0 = module.adapters[0].down_proj.weight.data  # [d, D]
+                # Canonical angles between fibers (geometric separation)
+                from backbones.sparse_geo_moe import fiber_angles
+                down0 = module.adapters[0].down_proj.weight.data
                 down1 = module.adapters[1].down_proj.weight.data
-                overlap = (down1 @ down0.T).norm(p='fro').item() / _math.sqrt(down0.shape[0])
+                max_angle, mean_angle = fiber_angles(down0, down1)
                 # GroupBank deviation from pass-through
                 dev0 = module.adapters[0].group_bank.deviation_penalty().item()
                 dev1 = module.adapters[1].group_bank.deviation_penalty().item()
@@ -604,7 +606,7 @@ class Learner(BaseLearner):
                 f_weights = F.softmax(f_logits, dim=-1).mean(dim=0)
                 logging.info(
                     f"L{module.layer_id} fiber diag: "
-                    f"overlap={overlap:.3f} "
+                    f"θ_max={max_angle:.3f} θ_mean={mean_angle:.3f} "
                     f"weights={f_weights.tolist()} "
                     f"gb_dev0={dev0:.4f} gb_dev1={dev1:.4f}"
                 )
